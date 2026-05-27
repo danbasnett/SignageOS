@@ -169,13 +169,10 @@ EOF
 
   chr "$root" "apt-get update -q"
 
-  # Keep apt memory usage low — important for arm64 emulation on CI runners
+  # Increase apt cache size — needed for large package sets (especially firmware)
   mkdir -p "$root/etc/apt/apt.conf.d"
-  cat > "$root/etc/apt/apt.conf.d/99-signaeos-low-mem" <<'EOF'
-APT::Cache-Limit "25165824";
-Acquire::http::Pipeline-Depth "0";
-Acquire::http::No-Cache "true";
-Acquire::BrokenProxy "true";
+  cat > "$root/etc/apt/apt.conf.d/99-signaeos-cache" <<'EOF'
+APT::Cache-Start "100663296";
 EOF
 
   # Base system
