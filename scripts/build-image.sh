@@ -213,7 +213,6 @@ EOF
     chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       raspberrypi-kernel raspberrypi-bootloader \
       raspi-config raspi-firmware \
-      libraspberrypi0 libraspberrypi-dev \
       pi-bluetooth \
       firmware-brcm80211"
   else
