@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# signaeos-update — A/B OTA update manager
+# Usage: signaeos-update [status|check|apply|rollback]
+set -euo pipefail
+
+UPDATE_SERVER="${SIGNAEOS_UPDATE_SERVER:-}"
+VERSION_FILE="/etc/signaeos-version"
+
+# Boot env is on the EFI/boot partition
+find_boot_env() {
+  for label in SGNOS-BOOT SGNOS-EFI; do
+    local dev; dev=$(findfs LABEL="$label" 2>/dev/null || true)
+    if [[ -n "$dev" ]]; then
+      # Mount it
+      local mnt; mnt=$(mktemp -d)
+      mount -o ro "$dev" "$mnt"
+      echo "$mnt/signaeos.env:$mnt"
+      return
+    fi
+  done
+  echo ""
+}
+
+read_slot() {
+  local info; info=$(find_boot_env)
+  [[ -z "$info" ]] && echo "a" && return
+  local env_file="${info%%:*}"
+  local mnt="${info##*:}"
+  local slot; slot=$(grep "^active_slot=" "$env_file" 2>/dev/null | cut -d= -f2 || echo "a")
+  umount "$mnt" 2>/dev/null; rmdir "$mnt" 2>/dev/null
+  echo "$slot"
+}
+
+write_slot() {
+  local new_slot="$1"
+  local info; info=$(find_boot_env)
+  [[ -z "$info" ]] && echo "Error: cannot find boot partition" >&2 && return 1
+  local env_file="${info%%:*}"
+  local mnt="${info##*:}"
+  # Remount rw
+  mount -o remount,rw "$mnt"
+  sed -i "s/^active_slot=.*/active_slot=${new_slot}/" "$env_file"
+  sed -i "s/^boot_attempts=.*/boot_attempts=0/" "$env_file"
+  sync
+  umount "$mnt"; rmdir "$mnt"
+}
+
+active_slot()   { read_slot; }
+inactive_slot() { [[ "$(read_slot)" == "a" ]] && echo "b" || echo "a"; }
+current_version() { cat "$VERSION_FILE" 2>/dev/null || echo "unknown"; }
+
+cmd_status() {
+  local active; active=$(active_slot)
+  local inactive; inactive=$(inactive_slot)
+  echo "SignageOS Update Status"
+  echo "  Version      : $(current_version)"
+  echo "  Active slot  : $active  ($(findfs PARTLABEL=rootfs-$active 2>/dev/null || echo 'unknown'))"
+  echo "  Inactive slot: $inactive  ($(findfs PARTLABEL=rootfs-$inactive 2>/dev/null || echo 'unknown'))"
+  echo "  Arch         : $(uname -m)"
+  if [[ -n "$UPDATE_SERVER" ]]; then
+    echo "  Update server: $UPDATE_SERVER"
+  else
+    echo "  Update server: not configured (set SIGNAEOS_UPDATE_SERVER in /etc/environment)"
+  fi
+}
+
+cmd_check() {
+  [[ -z "$UPDATE_SERVER" ]] && echo "No update server configured." && return
+  local arch; arch=$(uname -m)
+  local platform; [[ "$arch" == "aarch64" ]] && platform="rpi" || platform="x86"
+  local cur; cur=$(current_version)
+
+  echo "Checking for updates (current: $cur)..."
+  local manifest
+  manifest=$(curl -fsSL --connect-timeout 10 "$UPDATE_SERVER/latest/$platform/manifest.json") || {
+    echo "Cannot reach update server."; return 1
+  }
+  local latest; latest=$(echo "$manifest" | jq -r '.version')
+  if [[ "$latest" == "$cur" ]]; then
+    echo "Already up to date ($cur)."
+  else
+    echo "Update available: $cur → $latest"
+    echo "$manifest" | jq -r '.changelog // ""'
+    echo "update_available=$latest"
+  fi
+}
+
+cmd_apply() {
+  [[ -z "$UPDATE_SERVER" ]] && echo "No update server configured." && return 1
+  local arch; arch=$(uname -m)
+  local platform; [[ "$arch" == "aarch64" ]] && platform="rpi" || platform="x86"
+  local cur; cur=$(current_version)
+  local manifest
+  manifest=$(curl -fsSL --connect-timeout 10 "$UPDATE_SERVER/latest/$platform/manifest.json") || {
+    echo "Cannot reach update server." >&2; exit 1
+  }
+  local latest checksum url
+  latest=$(echo "$manifest"   | jq -r '.version')
+  checksum=$(echo "$manifest" | jq -r '.sha256')
+  url=$(echo "$manifest"      | jq -r '.rootfs_url')
+
+  [[ "$latest" == "$cur" ]] && echo "Already up to date." && return
+
+  local inactive; inactive=$(inactive_slot)
+  local inactive_dev; inactive_dev=$(findfs PARTLABEL=rootfs-$inactive 2>/dev/null || true)
+  [[ -z "$inactive_dev" ]] && echo "Cannot find inactive partition rootfs-$inactive" >&2 && exit 1
+
+  echo "Downloading $latest to slot $inactive ($inactive_dev)..."
+  local tmp; tmp=$(mktemp /tmp/sgnos-update-XXXXXX.squashfs)
+  trap "rm -f $tmp" EXIT
+  curl -fL --progress-bar "$url" -o "$tmp"
+
+  echo "Verifying checksum..."
+  echo "$checksum  $tmp" | sha256sum -c - || { echo "Checksum mismatch — aborting." >&2; exit 1; }
+
+  echo "Writing to $inactive_dev..."
+  dd if="$tmp" of="$inactive_dev" bs=4M status=progress
+  sync
+
+  write_slot "$inactive"
+  echo "Update applied. Reboot to activate version $latest."
+}
+
+cmd_rollback() {
+  local inactive; inactive=$(inactive_slot)
+  echo "Rolling back to slot $inactive..."
+  write_slot "$inactive"
+  echo "Done. Reboot to apply."
+}
+
+case "${1:-status}" in
+  status)   cmd_status ;;
+  check)    cmd_check ;;
+  apply)    cmd_apply ;;
+  rollback) cmd_rollback ;;
+  *)        echo "Usage: signaeos-update [status|check|apply|rollback]"; exit 1 ;;
+esac

@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+# signaeos-init — kiosk daemon
+# Manages overlayfs, browser lifecycle, and URL-switch socket
+set -euo pipefail
+
+CONFIG_FILE="/data/signaeos/config.json"
+SOCKET_PATH="/run/signaeos/control.sock"
+LOG_TAG="signaeos-init"
+BROWSER_PID=""
+
+log()  { logger -t "$LOG_TAG" -- "$*"; echo "[$(date '+%H:%M:%S')] $*"; }
+warn() { logger -t "$LOG_TAG" -- "WARN: $*"; echo "[$(date '+%H:%M:%S')] WARN: $*"; }
+
+cfg() {
+  jq -r "$1" "$CONFIG_FILE" 2>/dev/null || echo "${2:-}"
+}
+
+# ─── First boot: grow data partition to fill disk ────────────────────────────
+grow_data_partition() {
+  local dev; dev=$(findfs PARTLABEL=data 2>/dev/null || true)
+  [[ -z "$dev" ]] && return
+  # Get partition number and disk device
+  local disk num
+  if [[ "$dev" =~ (.*[^0-9])([0-9]+)$ ]]; then
+    disk="${BASH_REMATCH[1]}"
+    num="${BASH_REMATCH[2]}"
+    # Handle mmcblk0p4 style
+    [[ "$disk" =~ p$ ]] && disk="${disk%p}"
+  fi
+  log "Growing data partition $dev on $disk..."
+  growpart "$disk" "$num" 2>/dev/null && resize2fs "$dev" 2>/dev/null || true
+}
+
+# ─── Mount overlayfs: writable /data layer over squashfs root ────────────────
+setup_overlayfs() {
+  local data_dev; data_dev=$(findfs PARTLABEL=data 2>/dev/null || true)
+
+  if [[ -z "$data_dev" ]]; then
+    warn "No data partition found — config won't persist across reboots"
+    mkdir -p /data/signaeos
+    return
+  fi
+
+  if ! mountpoint -q /data; then
+    mkdir -p /data
+    mount -o defaults "$data_dev" /data
+    log "Mounted /data ($data_dev)"
+  fi
+
+  mkdir -p /data/signaeos \
+           /data/overlay/upper/var \
+           /data/overlay/work/var \
+           /data/overlay/upper/etc \
+           /data/overlay/work/etc \
+           /data/overlay/upper/home \
+           /data/overlay/work/home \
+           /data/chromium-profile \
+           /data/firefox-profile
+
+  # Overlay /var (logs, state)
+  if ! mountpoint -q /var; then
+    mount -t overlay overlay \
+      -o lowerdir=/var,upperdir=/data/overlay/upper/var,workdir=/data/overlay/work/var \
+      /var && log "Overlay: /var"
+  fi
+
+  # Overlay /home
+  if ! mountpoint -q /home; then
+    mount -t overlay overlay \
+      -o lowerdir=/home,upperdir=/data/overlay/upper/home,workdir=/data/overlay/work/home \
+      /home && log "Overlay: /home"
+  fi
+}
+
+# ─── Default config ───────────────────────────────────────────────────────────
+ensure_config() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    log "Writing default config to $CONFIG_FILE"
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    cat > "$CONFIG_FILE" <<'EOF'
+{
+  "display_name": "SignageOS Display",
+  "browser": "chromium",
+  "current_url_index": 0,
+  "urls": [
+    { "label": "Setup", "url": "http://localhost:3000" }
+  ],
+  "companion": {
+    "server_ip": "",
+    "server_port": 16622
+  },
+  "network": {
+    "wifi_ssid": "",
+    "wifi_password": "",
+    "hostname": "signaeos"
+  },
+  "ssh": {
+    "authorized_keys": ""
+  }
+}
+EOF
+  fi
+}
+
+# ─── Apply system settings from config ───────────────────────────────────────
+apply_settings() {
+  local hostname; hostname=$(cfg '.network.hostname' "signaeos")
+  echo "$hostname" > /etc/hostname
+  hostname "$hostname" 2>/dev/null || true
+
+  local keys; keys=$(cfg '.ssh.authorized_keys' "")
+  if [[ -n "$keys" ]]; then
+    mkdir -p /root/.ssh
+    echo "$keys" > /root/.ssh/authorized_keys
+    chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys
+  fi
+  # Also support /data/signaeos/authorized_keys for easy key injection
+  if [[ -f "/data/signaeos/authorized_keys" ]]; then
+    mkdir -p /root/.ssh
+    cat /data/signaeos/authorized_keys >> /root/.ssh/authorized_keys
+    sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
+  fi
+}
+
+# ─── Wait for compositor ─────────────────────────────────────────────────────
+wait_for_display() {
+  log "Waiting for Wayland compositor..."
+  local retries=60
+  while (( retries-- > 0 )); do
+    if [[ -S "/run/user/0/wayland-0" ]] || [[ -S "/run/weston/wayland-0" ]]; then
+      export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+      export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+      log "Wayland ready: $WAYLAND_DISPLAY"
+      return 0
+    fi
+    # X11 fallback
+    if [[ -n "${DISPLAY:-}" ]]; then
+      log "Using X11: $DISPLAY"
+      return 0
+    fi
+    sleep 1
+  done
+  warn "Display not ready after 60s — attempting anyway"
+  export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+}
+
+# ─── Get current URL from config ─────────────────────────────────────────────
+current_url() {
+  local idx; idx=$(cfg '.current_url_index' "0")
+  cfg ".urls[$idx].url" "http://localhost:3000"
+}
+
+# ─── Launch browser in kiosk mode ────────────────────────────────────────────
+launch_browser() {
+  local url="$1"
+  local browser; browser=$(cfg '.browser' "chromium")
+
+  # Kill previous instance
+  if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
+    log "Stopping previous browser (PID $BROWSER_PID)..."
+    kill "$BROWSER_PID"
+    wait "$BROWSER_PID" 2>/dev/null || true
+    BROWSER_PID=""
+    sleep 1
+  fi
+
+  log "Launching $browser → $url"
+
+  case "$browser" in
+    chromium|chromium-browser)
+      DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+      XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}" \
+      chromium \
+        --kiosk \
+        --no-sandbox \
+        --noerrdialogs \
+        --disable-infobars \
+        --disable-session-crashed-bubble \
+        --disable-features=TranslateUI,OverscrollHistoryNavigation \
+        --no-first-run \
+        --disable-pinch \
+        --autoplay-policy=no-user-gesture-required \
+        --disable-background-networking \
+        --disable-background-timer-throttling \
+        --disable-client-side-phishing-detection \
+        --disable-default-apps \
+        --disable-hang-monitor \
+        --disable-popup-blocking \
+        --disable-prompt-on-repost \
+        --disable-sync \
+        --disable-translate \
+        --metrics-recording-only \
+        --no-default-browser-check \
+        --safebrowsing-disable-auto-update \
+        --password-store=basic \
+        --use-mock-keychain \
+        --user-data-dir=/data/chromium-profile \
+        --ozone-platform=wayland \
+        "$url" &
+      BROWSER_PID=$!
+      ;;
+    firefox|firefox-esr)
+      # Kiosk profile setup
+      local profile_dir="/data/firefox-profile"
+      if [[ ! -f "$profile_dir/user.js" ]]; then
+        mkdir -p "$profile_dir"
+        cat > "$profile_dir/user.js" <<'PREFS'
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("datareporting.healthreport.service.enabled", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("toolkit.telemetry.enabled", false);
+user_pref("browser.cache.disk.enable", true);
+user_pref("browser.cache.disk.capacity", 524288);
+PREFS
+      fi
+      MOZ_ENABLE_WAYLAND=1 \
+      WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" \
+      XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}" \
+      firefox-esr \
+        --kiosk \
+        --profile "$profile_dir" \
+        --no-remote \
+        "$url" &
+      BROWSER_PID=$!
+      ;;
+    *)
+      warn "Unknown browser '$browser', falling back to chromium"
+      cfg_set '.browser' '"chromium"'
+      launch_browser "$url"
+      return
+      ;;
+  esac
+
+  log "Browser PID: $BROWSER_PID"
+}
+
+# ─── Update config helper ─────────────────────────────────────────────────────
+cfg_set() {
+  local key="$1" val="$2"
+  local tmp; tmp=$(mktemp)
+  jq "$key = $val" "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+}
+
+# ─── Switch to URL by index ───────────────────────────────────────────────────
+switch_url() {
+  local idx="$1"
+  local total; total=$(jq '.urls | length' "$CONFIG_FILE" 2>/dev/null || echo 1)
+
+  if (( idx < 0 || idx >= total )); then
+    echo '{"ok":false,"error":"index out of range"}'
+    return 1
+  fi
+
+  cfg_set '.current_url_index' "$idx"
+  local url; url=$(cfg ".urls[$idx].url" "http://localhost:3000")
+  launch_browser "$url"
+  echo '{"ok":true}'
+}
+
+# ─── Control socket handler ───────────────────────────────────────────────────
+# Protocol: one-line JSON  →  JSON response
+# Commands: switch(index), next, prev, reload, status, set_browser(browser)
+handle_command() {
+  local line
+  if ! read -r -t 10 line; then
+    echo '{"ok":false,"error":"read timeout"}'
+    return
+  fi
+
+  local cmd; cmd=$(echo "$line" | jq -r '.cmd' 2>/dev/null || echo "")
+
+  case "$cmd" in
+    switch)
+      local idx; idx=$(echo "$line" | jq -r '.index // 0')
+      switch_url "$idx"
+      ;;
+    next)
+      local cur total
+      cur=$(cfg '.current_url_index' "0")
+      total=$(jq '.urls | length' "$CONFIG_FILE" 2>/dev/null || echo 1)
+      switch_url $(( (cur + 1) % total ))
+      ;;
+    prev)
+      local cur total
+      cur=$(cfg '.current_url_index' "0")
+      total=$(jq '.urls | length' "$CONFIG_FILE" 2>/dev/null || echo 1)
+      switch_url $(( (cur - 1 + total) % total ))
+      ;;
+    reload)
+      launch_browser "$(current_url)"
+      echo '{"ok":true}'
+      ;;
+    status)
+      local idx label url
+      idx=$(cfg '.current_url_index' "0")
+      label=$(cfg ".urls[$idx].label" "")
+      url=$(cfg ".urls[$idx].url" "")
+      local total; total=$(jq '.urls | length' "$CONFIG_FILE" 2>/dev/null || echo 1)
+      echo "{\"ok\":true,\"index\":$idx,\"label\":\"$label\",\"url\":\"$url\",\"total\":$total}"
+      ;;
+    set_browser)
+      local br; br=$(echo "$line" | jq -r '.browser // "chromium"')
+      cfg_set '.browser' "\"$br\""
+      launch_browser "$(current_url)"
+      echo '{"ok":true}'
+      ;;
+    *)
+      echo '{"ok":false,"error":"unknown command"}'
+      ;;
+  esac
+}
+
+# ─── Socket listener ──────────────────────────────────────────────────────────
+start_socket_listener() {
+  rm -f "$SOCKET_PATH"
+  mkdir -p "$(dirname "$SOCKET_PATH")"
+  log "Control socket: $SOCKET_PATH"
+  # socat: for each connection, exec this script in --handle mode
+  while true; do
+    socat UNIX-LISTEN:"$SOCKET_PATH",fork EXEC:"$0 --handle-command" 2>/dev/null || sleep 2
+  done &
+}
+
+# ─── Browser watchdog ─────────────────────────────────────────────────────────
+watchdog() {
+  log "Watchdog started"
+  while true; do
+    sleep 15
+    if [[ -n "$BROWSER_PID" ]] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
+      warn "Browser (PID $BROWSER_PID) died — restarting..."
+      BROWSER_PID=""
+      sleep 2
+      launch_browser "$(current_url)"
+    fi
+  done
+}
+
+# ─── Entry points ─────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--handle-command" ]]; then
+  # Called by socat for each socket connection
+  CONFIG_FILE="/data/signaeos/config.json"
+  handle_command
+  exit 0
+fi
+
+# Normal startup
+log "SignageOS init starting (PID $$)"
+
+grow_data_partition
+setup_overlayfs
+ensure_config
+apply_settings
+wait_for_display
+
+mkdir -p /run/signaeos
+
+start_socket_listener
+launch_browser "$(current_url)"
+watchdog &
+
+log "Startup complete. Browser PID: $BROWSER_PID"
+
+# Wait on browser; systemd tracks this unit
+wait "$BROWSER_PID" || true
+log "Browser exited — watchdog will restart"
+wait  # wait for background jobs

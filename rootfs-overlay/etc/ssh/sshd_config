@@ -1,0 +1,27 @@
+Port 22
+Protocol 2
+
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# Authentication
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /root/.ssh/authorized_keys /data/signaeos/authorized_keys
+
+# Security
+X11Forwarding no
+AllowTcpForwarding yes
+MaxAuthTries 3
+LoginGraceTime 30
+
+# Keep-alive
+ClientAliveInterval 30
+ClientAliveCountMax 3
+
+PrintMotd yes
+Banner /etc/ssh/banner
+
+# Subsystems
+Subsystem sftp /usr/lib/openssh/sftp-server

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SignageOS Setup</title>
+<style>
+:root {
+  --bg:#0d1117; --surface:#161b22; --surface2:#21262d; --border:#30363d;
+  --accent:#58a6ff; --green:#3fb950; --red:#f85149; --yellow:#d29922;
+  --text:#c9d1d9; --muted:#8b949e; --r:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+
+/* Layout */
+.app{display:grid;grid-template-rows:56px 1fr;height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:16px}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.3px}
+.logo b{color:var(--accent)}
+.pill{margin-left:auto;display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--muted)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.body{display:grid;grid-template-columns:200px 1fr;overflow:hidden}
+
+/* Nav */
+nav{background:var(--surface);border-right:1px solid var(--border);padding:16px 0;overflow-y:auto}
+nav a{display:flex;align-items:center;gap:10px;padding:9px 16px;color:var(--muted);text-decoration:none;font-size:13px;border-right:2px solid transparent;transition:.1s}
+nav a:hover{color:var(--text);background:var(--surface2)}
+nav a.on{color:var(--accent);background:rgba(88,166,255,.08);border-right-color:var(--accent)}
+.ico{width:18px;text-align:center;font-size:15px}
+
+/* Main */
+main{padding:28px;overflow-y:auto}
+.sec{display:none}.sec.on{display:block}
+h2{font-size:18px;font-weight:600;margin-bottom:4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px}
+.card h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:14px}
+
+/* Form */
+.field{margin-bottom:14px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+input,select,textarea{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--r);padding:7px 10px;font-size:13px;font-family:inherit;outline:none;transition:.15s border-color}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+textarea{resize:vertical;min-height:90px;font-family:monospace;font-size:12px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* URL rows */
+#url-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.urow{display:grid;grid-template-columns:140px 1fr 32px;gap:8px;align-items:center}
+.urow input{margin:0}
+.del{width:32px;height:32px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:var(--r);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.del:hover{color:var(--red);border-color:var(--red);background:rgba(248,81,73,.1)}
+
+/* Buttons */
+.btn{padding:7px 16px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:none;transition:.15s}
+.primary{background:var(--accent);color:#0d1117}.primary:hover{filter:brightness(1.1)}
+.ghost{background:var(--surface2);border:1px solid var(--border);color:var(--text)}.ghost:hover{border-color:var(--accent);color:var(--accent)}
+.danger{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--red)}.danger:hover{background:rgba(248,81,73,.22)}
+.sm{padding:5px 12px;font-size:12px}
+.acts{display:flex;gap:8px;margin-top:16px}
+
+/* URL switch buttons */
+.url-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.ubtn{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--r);padding:8px 16px;cursor:pointer;font-size:13px;transition:.15s}
+.ubtn:hover{border-color:var(--accent);color:var(--accent)}
+.ubtn.on{background:rgba(88,166,255,.12);border-color:var(--accent);color:var(--accent)}
+
+/* System info grid */
+.sysinfo{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.si{background:var(--surface2);border-radius:var(--r);padding:12px 14px}
+.si .v{font-size:18px;font-weight:600}
+.si .l{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;font-size:13px;box-shadow:0 4px 24px #0006;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}
+.toast.ok{border-color:var(--green);color:var(--green)}
+.toast.err{border-color:var(--red);color:var(--red)}
+
+/* WiFi chips */
+.ssid-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ssid-chip{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--muted)}
+.ssid-chip:hover{border-color:var(--accent);color:var(--text)}
+
+code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace}
+
+@media(max-width:600px){
+  .body{grid-template-columns:1fr}
+  nav{display:flex;overflow-x:auto;border-right:none;border-bottom:1px solid var(--border);padding:0}
+  nav a{white-space:nowrap;border-right:none;border-bottom:2px solid transparent}
+  nav a.on{border-bottom-color:var(--accent);border-right:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="logo">Signage<b>OS</b></div>
+  <div class="pill"><div class="dot" id="dot"></div><span id="stxt">Loading…</span></div>
+</header>
+<div class="body">
+<nav>
+  <a href="#" class="on" data-s="display" onclick="go(this)"><span class="ico">🖥️</span>Display</a>
+  <a href="#" data-s="urls"     onclick="go(this)"><span class="ico">🔗</span>URLs</a>
+  <a href="#" data-s="network"  onclick="go(this)"><span class="ico">📡</span>Network</a>
+  <a href="#" data-s="stream"   onclick="go(this)"><span class="ico">🎛️</span>Stream Deck</a>
+  <a href="#" data-s="system"   onclick="go(this)"><span class="ico">⚙️</span>System</a>
+</nav>
+<main>
+
+<!-- Display -->
+<section class="sec on" id="s-display">
+  <h2>Display Control</h2><p class="sub">Switch what's on screen right now.</p>
+  <div class="card">
+    <h3>Now Showing</h3>
+    <div id="now-showing" style="font-size:13px;color:var(--muted);margin-bottom:12px">Loading…</div>
+    <div class="url-btns" id="url-btns"></div>
+  </div>
+  <div class="card">
+    <h3>Settings</h3>
+    <div class="field"><label>Display Name (shown in Companion)</label>
+      <input id="display_name" type="text" placeholder="Lobby Screen"></div>
+    <div class="field"><label>Browser</label>
+      <select id="browser">
+        <option value="chromium">Chromium</option>
+        <option value="firefox">Firefox ESR</option>
+      </select></div>
+    <div class="acts"><button class="btn primary" onclick="saveDisplay()">Save</button></div>
+  </div>
+</section>
+
+<!-- URLs -->
+<section class="sec" id="s-urls">
+  <h2>URLs</h2><p class="sub">Each URL becomes a Stream Deck–switchable source. Add as many as you like.</p>
+  <div class="card">
+    <h3>URL List</h3>
+    <div id="url-list"></div>
+    <button class="btn ghost sm" onclick="addUrl()">+ Add URL</button>
+    <div class="acts"><button class="btn primary" onclick="saveUrls()">Save URLs</button></div>
+  </div>
+</section>
+
+<!-- Network -->
+<section class="sec" id="s-network">
+  <h2>Network</h2><p class="sub">Ethernet works automatically. Configure WiFi and hostname here.</p>
+  <div class="card">
+    <h3>Hostname</h3>
+    <div class="field"><label>Hostname (used for <code>signaeos.local</code> mDNS)</label>
+      <input id="hostname" type="text" placeholder="signaeos"></div>
+  </div>
+  <div class="card">
+    <h3>WiFi</h3>
+    <div class="field">
+      <label>SSID &nbsp;<button class="btn ghost sm" onclick="scanWifi()">Scan</button></label>
+      <input id="wifi_ssid" type="text" placeholder="Network name">
+      <div class="ssid-list" id="ssid-list"></div>
+    </div>
+    <div class="field"><label>Password</label>
+      <input id="wifi_pass" type="password" placeholder="Leave blank for open networks"></div>
+  </div>
+  <div class="acts"><button class="btn primary" onclick="saveNetwork()">Save &amp; Connect</button></div>
+</section>
+
+<!-- Stream Deck -->
+<section class="sec" id="s-stream">
+  <h2>Stream Deck / Companion</h2>
+  <p class="sub">Connect this device to Bitfocus Companion. Each URL becomes a switchable action.</p>
+  <div class="card">
+    <h3>Companion Server</h3>
+    <div class="row2">
+      <div class="field"><label>Companion Server IP</label>
+        <input id="comp_ip" type="text" placeholder="192.168.1.100"></div>
+      <div class="field"><label>Port</label>
+        <input id="comp_port" type="number" placeholder="16622" value="16622"></div>
+    </div>
+    <div class="acts"><button class="btn primary" onclick="saveCompanion()">Save &amp; Restart Satellite</button></div>
+  </div>
+  <div class="card">
+    <h3>Setup Guide</h3>
+    <ol style="color:var(--muted);font-size:13px;padding-left:18px;line-height:2.2">
+      <li>Open <strong style="color:var(--text)">Bitfocus Companion</strong> on your PC</li>
+      <li>Go to <strong style="color:var(--text)">Connections</strong> → Add → search <em>Generic HTTP</em></li>
+      <li>For each URL, create a button with action:<br>
+        <code>POST http://&lt;this-device-ip&gt;:3000/api/switch/0</code> (0, 1, 2… per URL)</li>
+      <li>Or use <strong style="color:var(--text)">Satellite</strong> connection type — Companion Satellite
+          is running on port <code>16622</code> on this device</li>
+      <li>Plug Stream Deck into this box <em>or</em> into your PC running Companion</li>
+    </ol>
+  </div>
+</section>
+
+<!-- System -->
+<section class="sec" id="s-system">
+  <h2>System</h2><p class="sub">Device info, SSH keys, OTA updates.</p>
+  <div class="card">
+    <h3>System Info</h3>
+    <div class="sysinfo">
+      <div class="si"><div class="v" id="si-ip">—</div><div class="l">IP Address</div></div>
+      <div class="si"><div class="v" id="si-arch">—</div><div class="l">Architecture</div></div>
+      <div class="si"><div class="v" id="si-up">—</div><div class="l">Uptime</div></div>
+      <div class="si"><div class="v" id="si-ver">—</div><div class="l">Version</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>SSH Access</h3>
+    <div class="field"><label>Authorized Public Keys (one per line)</label>
+      <textarea id="ssh_keys" placeholder="ssh-ed25519 AAAA…"></textarea></div>
+    <div class="acts"><button class="btn primary" onclick="saveSsh()">Save Keys</button></div>
+    <p style="margin-top:12px;font-size:12px;color:var(--muted)">
+      Connect: <code>ssh root@signaeos.local</code><br>
+      Or drop a key file at <code>/data/signaeos/authorized_keys</code>
+    </p>
+  </div>
+  <div class="card">
+    <h3>OTA Update</h3>
+    <div class="acts">
+      <button class="btn ghost" onclick="checkUpdate()">Check for Update</button>
+      <button class="btn primary" id="btn-apply" onclick="applyUpdate()" style="display:none">Apply Update</button>
+    </div>
+    <pre id="upd-out" style="margin-top:12px;font-size:12px;color:var(--muted);white-space:pre-wrap;background:var(--surface2);padding:10px;border-radius:var(--r);display:none"></pre>
+  </div>
+  <div class="card">
+    <h3>Danger Zone</h3>
+    <div class="acts">
+      <button class="btn danger" onclick="if(confirm('Reboot now?'))reboot()">Reboot</button>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let C = {};  // config cache
+
+function go(el) {
+  event.preventDefault();
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('on'));
+  document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('s-' + el.dataset.s).classList.add('on');
+  if (el.dataset.s === 'system') loadSystem();
+}
+
+function toast(msg, type='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show ' + type;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function api(method, url, body) {
+  const r = await fetch(url, {
+    method,
+    headers: body ? {'Content-Type':'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return r.json();
+}
+
+async function load() {
+  C = await api('GET', '/api/config');
+  fill();
+  tick();
+}
+
+function fill() {
+  document.getElementById('display_name').value = C.display_name || '';
+  document.getElementById('browser').value = C.browser || 'chromium';
+  document.getElementById('hostname').value = C.network?.hostname || 'signaeos';
+  document.getElementById('wifi_ssid').value = C.network?.wifi_ssid || '';
+  document.getElementById('wifi_pass').value = C.network?.wifi_password || '';
+  document.getElementById('comp_ip').value = C.companion?.server_ip || '';
+  document.getElementById('comp_port').value = C.companion?.server_port || 16622;
+  document.getElementById('ssh_keys').value = C.ssh?.authorized_keys || '';
+  renderUrlList();
+  renderUrlBtns();
+}
+
+async function tick() {
+  try {
+    const s = await api('GET', '/api/status');
+    const dot = document.getElementById('dot');
+    const txt = document.getElementById('stxt');
+    if (s.ok) {
+      dot.style.background = 'var(--green)';
+      txt.textContent = s.label || 'Running';
+      document.getElementById('now-showing').textContent =
+        `Showing: ${s.label}  —  ${s.url}  (${(s.index||0)+1} of ${s.total||1})`;
+      document.querySelectorAll('.ubtn').forEach((b,i) =>
+        b.classList.toggle('on', i === s.index));
+    } else {
+      dot.style.background = 'var(--yellow)'; txt.textContent = 'Starting…';
+    }
+  } catch {}
+  setTimeout(tick, 5000);
+}
+
+// ─── URL list ──────────────────────────────────────────────────────────────
+function renderUrlList() {
+  const el = document.getElementById('url-list');
+  el.innerHTML = '';
+  (C.urls||[]).forEach((u,i) => {
+    const d = document.createElement('div');
+    d.className = 'urow';
+    d.innerHTML = `
+      <input type="text" placeholder="Label" value="${esc(u.label)}" oninput="C.urls[${i}].label=this.value">
+      <input type="text" placeholder="https://…"  value="${esc(u.url)}"   oninput="C.urls[${i}].url=this.value">
+      <button class="del" onclick="removeUrl(${i})">✕</button>`;
+    el.appendChild(d);
+  });
+}
+
+function renderUrlBtns() {
+  const el = document.getElementById('url-btns');
+  el.innerHTML = '';
+  (C.urls||[]).forEach((u,i) => {
+    const b = document.createElement('button');
+    b.className = 'ubtn' + (i === C.current_url_index ? ' on' : '');
+    b.textContent = u.label || u.url;
+    b.onclick = () => switchTo(i);
+    el.appendChild(b);
+  });
+}
+
+function addUrl() {
+  C.urls = C.urls||[]; C.urls.push({label:'New Page',url:'https://'});
+  renderUrlList(); renderUrlBtns();
+}
+
+function removeUrl(i) {
+  C.urls.splice(i,1); renderUrlList(); renderUrlBtns();
+}
+
+async function switchTo(i) {
+  const r = await api('POST', `/api/switch/${i}`);
+  if (r.ok) { C.current_url_index=i; renderUrlBtns(); toast('Switched!'); }
+  else toast('Switch failed', 'err');
+}
+
+// ─── Saves ─────────────────────────────────────────────────────────────────
+async function saveDisplay() {
+  C.display_name = document.getElementById('display_name').value;
+  C.browser = document.getElementById('browser').value;
+  const r = await api('POST','/api/config',C);
+  r.ok ? toast('Saved!') : toast('Error: '+r.error,'err');
+}
+
+async function saveUrls() {
+  const r = await api('POST','/api/config',C);
+  if (r.ok) { toast('URLs saved!'); renderUrlBtns(); }
+  else toast('Error: '+r.error,'err');
+}
+
+async function saveNetwork() {
+  C.network = C.network||{};
+  C.network.hostname = document.getElementById('hostname').value;
+  C.network.wifi_ssid = document.getElementById('wifi_ssid').value;
+  const pw = document.getElementById('wifi_pass').value;
+  if (!pw.includes('•')) C.network.wifi_password = pw;
+  const r = await api('POST','/api/config',C);
+  r.ok ? toast('Saved! Connecting…') : toast('Error: '+r.error,'err');
+}
+
+async function saveCompanion() {
+  C.companion = {
+    server_ip: document.getElementById('comp_ip').value,
+    server_port: parseInt(document.getElementById('comp_port').value)||16622
+  };
+  const r = await api('POST','/api/config',C);
+  r.ok ? toast('Companion config saved!') : toast('Error: '+r.error,'err');
+}
+
+async function saveSsh() {
+  C.ssh = {authorized_keys: document.getElementById('ssh_keys').value};
+  const r = await api('POST','/api/config',C);
+  r.ok ? toast('SSH keys saved!') : toast('Error: '+r.error,'err');
+}
+
+// ─── WiFi scan ─────────────────────────────────────────────────────────────
+async function scanWifi() {
+  const el = document.getElementById('ssid-list');
+  el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Scanning…</span>';
+  const r = await api('GET','/api/wifi/scan');
+  el.innerHTML = '';
+  if (r.ok && r.networks?.length) {
+    r.networks.forEach(n => {
+      const c = document.createElement('span');
+      c.className = 'ssid-chip';
+      c.textContent = `${n.ssid} ${n.signal}%`;
+      c.onclick = () => { document.getElementById('wifi_ssid').value = n.ssid; };
+      el.appendChild(c);
+    });
+  } else el.innerHTML = '<span style="font-size:12px;color:var(--muted)">No networks found</span>';
+}
+
+// ─── System ────────────────────────────────────────────────────────────────
+async function loadSystem() {
+  const s = await api('GET','/api/system');
+  if (s.ok) {
+    document.getElementById('si-ip').textContent = s.ip||'—';
+    document.getElementById('si-arch').textContent = s.arch||'—';
+    document.getElementById('si-up').textContent = fmt(s.uptime);
+    document.getElementById('si-ver').textContent = s.version||'—';
+  }
+}
+
+function fmt(s) {
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+  return h>0?`${h}h ${m}m`:`${m}m`;
+}
+
+async function checkUpdate() {
+  const o = document.getElementById('upd-out');
+  o.style.display='block'; o.textContent='Checking…';
+  const r = await api('POST','/api/update/check');
+  o.textContent = r.output||'No output';
+  if (r.output?.includes('update_available'))
+    document.getElementById('btn-apply').style.display='';
+}
+
+async function applyUpdate() {
+  const o = document.getElementById('upd-out');
+  o.textContent='Applying update…';
+  toast('Applying update…');
+  const r = await api('POST','/api/update/apply');
+  o.textContent = r.output||'';
+  if (r.ok) toast('Update applied — reboot to activate');
+  else toast('Update failed','err');
+}
+
+async function reboot() {
+  toast('Rebooting…');
+  await api('POST','/api/reboot');
+}
+
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}
+
+load();
+</script>
+</body>
+</html>

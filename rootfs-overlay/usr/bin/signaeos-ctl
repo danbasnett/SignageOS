@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# signaeos-ctl — send commands to the running signaeos-init daemon
+# Usage:
+#   signaeos-ctl status
+#   signaeos-ctl switch 2
+#   signaeos-ctl next
+#   signaeos-ctl prev
+#   signaeos-ctl reload
+#   signaeos-ctl set-browser chromium|firefox
+
+SOCKET="/run/signaeos/control.sock"
+
+die() { echo "Error: $*" >&2; exit 1; }
+
+send() {
+  local payload="$1"
+  if [[ ! -S "$SOCKET" ]]; then
+    die "Control socket not found at $SOCKET — is signaeos-init running?"
+  fi
+  echo "$payload" | socat - "UNIX-CONNECT:$SOCKET"
+  echo
+}
+
+CMD="${1:-status}"
+case "$CMD" in
+  status)  send '{"cmd":"status"}' ;;
+  next)    send '{"cmd":"next"}' ;;
+  prev)    send '{"cmd":"prev"}' ;;
+  reload)  send '{"cmd":"reload"}' ;;
+  switch)
+    [[ -z "${2:-}" ]] && die "Usage: signaeos-ctl switch <index>"
+    send "{\"cmd\":\"switch\",\"index\":${2}}"
+    ;;
+  set-browser)
+    [[ -z "${2:-}" ]] && die "Usage: signaeos-ctl set-browser <chromium|firefox>"
+    send "{\"cmd\":\"set_browser\",\"browser\":\"${2}\"}"
+    ;;
+  *)
+    echo "Usage: signaeos-ctl <status|next|prev|reload|switch <n>|set-browser <browser>>"
+    exit 1
+    ;;
+esac

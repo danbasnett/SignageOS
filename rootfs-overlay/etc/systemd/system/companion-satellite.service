@@ -1,0 +1,21 @@
+[Unit]
+Description=Bitfocus Companion Satellite
+Documentation=https://github.com/bitfocus/companion-satellite
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/companion-satellite
+ExecStart=/opt/companion-satellite/companion-satellite
+
+Restart=always
+RestartSec=10
+
+Environment=COMPANION_SATELLITE_CONFIG=/data/signaeos/satellite.json
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=companion-satellite
+
+[Install]
+WantedBy=multi-user.target

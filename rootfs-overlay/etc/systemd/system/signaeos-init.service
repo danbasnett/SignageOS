@@ -1,0 +1,28 @@
+[Unit]
+Description=SignageOS Kiosk
+Documentation=https://github.com/your-org/signaeos
+After=network.target weston.service signaeos-webui.service
+Wants=weston.service signaeos-webui.service companion-satellite.service
+# Restart if it crashes
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/signaeos-init
+Restart=always
+RestartSec=5
+KillMode=process
+
+# Environment
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=HOME=/root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signaeos-init
+
+[Install]
+WantedBy=multi-user.target

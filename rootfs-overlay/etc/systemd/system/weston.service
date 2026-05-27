@@ -1,0 +1,33 @@
+[Unit]
+Description=Weston Wayland Compositor
+After=systemd-udevd.service
+Requires=systemd-udevd.service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/weston \
+  --config=/etc/weston/weston.ini \
+  --log=/var/log/weston.log \
+  --modules=systemd-notify.so
+
+Restart=always
+RestartSec=3
+
+# Run as root so it can access /dev/dri
+User=root
+Group=root
+
+# Needed for DRM/KMS
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=XDG_SESSION_TYPE=drm
+
+# Create runtime dir
+ExecStartPre=/bin/mkdir -p /run/user/0
+ExecStartPre=/bin/chmod 0700 /run/user/0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=weston
+
+[Install]
+WantedBy=multi-user.target
