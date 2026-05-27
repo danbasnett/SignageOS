@@ -30,6 +30,14 @@ jobs:
           sudo systemctl start systemd-binfmt || true
           ls /proc/sys/fs/binfmt_misc/
 
+      - name: Add swap space (needed for arm64 chroot)
+        run: |
+          sudo fallocate -l 4G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Cache debootstrap tarball
         uses: actions/cache@v4
         with:
@@ -76,7 +84,7 @@ jobs:
             debootstrap \
             parted squashfs-tools dosfstools \
             grub-efi-amd64-bin mtools \
-            curl wget xz-utils
+            curl wget xz-utils git
 
       - name: Cache debootstrap tarball
         uses: actions/cache@v4

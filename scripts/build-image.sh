@@ -50,12 +50,21 @@ step()  { echo -e "\n${C}${B}══ $* ══${N}"; }
 # ─── Dependency check ─────────────────────────────────────────────────────────
 check_deps() {
   local missing=()
-  for cmd in debootstrap parted mkfs.vfat mkfs.ext4 mksquashfs losetup \
-             qemu-aarch64-static curl wget git xz; do
+
+  # Tools always required
+  for cmd in debootstrap parted mkfs.vfat mkfs.ext4 mksquashfs losetup curl wget xz; do
     command -v "$cmd" &>/dev/null || missing+=("$cmd")
   done
+
+  # qemu-aarch64-static only needed when building arm64 on an x86 host
+  if [[ "$TARGET" == "rpi" || "$TARGET" == "all" ]]; then
+    if [[ "$(uname -m)" != "aarch64" ]]; then
+      command -v qemu-aarch64-static &>/dev/null || missing+=("qemu-aarch64-static")
+    fi
+  fi
+
   if [[ ${#missing[@]} -gt 0 ]]; then
-    error "Missing tools: ${missing[*]}\nRun: sudo apt-get install -y debootstrap qemu-user-static binfmt-support parted squashfs-tools dosfstools grub-efi-amd64-bin mtools curl wget git xz-utils"
+    error "Missing tools: ${missing[*]}\nRun: sudo apt-get install -y debootstrap qemu-user-static binfmt-support parted squashfs-tools dosfstools grub-efi-amd64-bin mtools curl wget xz-utils"
   fi
 }
 
@@ -143,41 +152,56 @@ install_packages() {
 
   mount_chroot "$root"
 
-  # Sources list
-  cat > "$root/etc/apt/sources.list" <<EOF
+  # Sources list — omit security repo on arm64 to avoid weak InRelease memory errors
+  # (security updates still come via raspberrypi.com for RPi builds)
+  if [[ "$arch" == "arm64" ]]; then
+    cat > "$root/etc/apt/sources.list" <<EOF
+deb $DEBIAN_MIRROR $DEBIAN_RELEASE main contrib non-free non-free-firmware
+deb $DEBIAN_MIRROR $DEBIAN_RELEASE-updates main contrib non-free non-free-firmware
+EOF
+  else
+    cat > "$root/etc/apt/sources.list" <<EOF
 deb $DEBIAN_MIRROR $DEBIAN_RELEASE main contrib non-free non-free-firmware
 deb $DEBIAN_MIRROR $DEBIAN_RELEASE-updates main contrib non-free non-free-firmware
 deb https://security.debian.org/debian-security $DEBIAN_RELEASE-security main contrib non-free non-free-firmware
 EOF
+  fi
 
   chr "$root" "apt-get update -q"
+
+  # Keep apt memory usage low — important for arm64 emulation on CI runners
+  mkdir -p "$root/etc/apt/apt.conf.d"
+  cat > "$root/etc/apt/apt.conf.d/99-signaeos-low-mem" <<'EOF'
+APT::Cache-Limit "25165824";
+Acquire::http::Pipeline-Depth "0";
+Acquire::http::No-Cache "true";
+Acquire::BrokenProxy "true";
+EOF
 
   # Base system
   info "Installing base packages..."
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     systemd systemd-sysv dbus \
     udev kmod \
-    network-manager wpasupplicant \
-    avahi-daemon libnss-mdns \
     openssh-server \
     sudo bash-completion \
     curl wget ca-certificates gnupg \
     jq socat \
     util-linux e2fsprogs dosfstools \
     cloud-guest-utils \
-    xz-utils \
-    htop less nano \
-    alsa-utils \
-    usbutils"
+    xz-utils htop less nano"
+
+  chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    network-manager wpasupplicant \
+    avahi-daemon libnss-mdns \
+    alsa-utils usbutils"
 
   # Wayland + compositor
   info "Installing display stack..."
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    weston \
-    xwayland \
+    weston xwayland \
     libwayland-client0 libwayland-server0 \
-    libinput10 \
-    mesa-utils \
+    libinput10 mesa-utils \
     fonts-dejavu-core fonts-liberation"
 
   # Platform-specific display / GPU / kernel
