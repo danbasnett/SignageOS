@@ -177,6 +177,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [build-rpi, build-x86]
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
     steps:
       - name: Get version
