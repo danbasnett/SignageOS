@@ -67,8 +67,8 @@ jobs:
             'TIMEZONE_DEFAULT="UTC"' \
             'ENABLE_SSH=1' \
             'PUBKEY_SSH_FIRST_USER=""' \
-            'FIRST_USER_NAME="root"' \
-            'FIRST_USER_PASS=""' \
+            'FIRST_USER_NAME="signaeos"' \
+            'FIRST_USER_PASS="signaeos"' \
             'DISABLE_FIRST_BOOT_USER_RENAME=1' \
             'WPA_COUNTRY="GB"' \
             > pi-gen/config

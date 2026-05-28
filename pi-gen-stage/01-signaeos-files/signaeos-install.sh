@@ -46,6 +46,15 @@ UDEV
 # ── 802.1q VLAN kernel module ─────────────────────────────────────────────────
 echo "8021q" >> /etc/modules
 
+# ── Lock default user, enable root SSH ───────────────────────────────────────
+# pi-gen creates a 'signaeos' user — lock its password, we use key auth only
+passwd -l signaeos 2>/dev/null || true
+# Allow root login via SSH key
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+# Give root sudo without password (signaeos-init runs as root)
+echo 'root ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/root-nopasswd
+
 # ── Mark executables ──────────────────────────────────────────────────────────
 chmod +x /usr/bin/signaeos-display1 /usr/bin/signaeos-display2 /usr/bin/signaeos-ctl
 
@@ -65,9 +74,5 @@ systemctl enable \
   weston.service
 
 systemctl set-default multi-user.target
-
-# ── Root account — no password, key auth only ─────────────────────────────────
-passwd -d root
-passwd -l root
 
 echo "SignageOS stage complete."

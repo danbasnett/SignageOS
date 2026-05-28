@@ -116,6 +116,7 @@ chr "bash /tmp/signaeos-install.sh && rm -f /tmp/signaeos-install.sh"
 # ── Configure ─────────────────────────────────────────────────────────────────
 step "System configuration"
 echo "signaeos" > "$ROOT/etc/hostname"
+chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales"
 chr "echo 'en_GB.UTF-8 UTF-8' >> /etc/locale.gen && locale-gen"
 chr "ln -sf /usr/share/zoneinfo/UTC /etc/localtime"
 chr "passwd -d root; passwd -l root"
