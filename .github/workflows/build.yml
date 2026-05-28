@@ -3,76 +3,108 @@ name: Build SignageOS Image
 on:
   push:
     tags:
-      - 'v*'          # triggers on v0.1.0, v1.2.3, etc
-  workflow_dispatch:  # also lets you trigger a build manually from the GitHub UI
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
+
   build-rpi:
-    name: Build Raspberry Pi Image
+    name: Raspberry Pi Image (pi-gen)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
-      - name: Checkout
+      - name: Checkout SignageOS
         uses: actions/checkout@v4
+        with:
+          path: signaeos
 
-      - name: Install build dependencies
+      - name: Install pi-gen dependencies
         run: |
           sudo apt-get update -q
           sudo apt-get install -y \
-            debootstrap qemu-user-static binfmt-support \
-            parted squashfs-tools dosfstools \
-            grub-efi-amd64-bin mtools \
-            curl wget xz-utils
+            coreutils quilt parted qemu-user-static debootstrap \
+            zerofree zip dosfstools libarchive-tools libcap2-bin \
+            grep rsync xz-utils file git curl bc gpg pigz xxd
 
-      - name: Enable binfmt for arm64
-        run: |
-          sudo systemctl start systemd-binfmt || true
-          ls /proc/sys/fs/binfmt_misc/
+      - name: Clone pi-gen
+        run: git clone --depth=1 https://github.com/RPi-Distro/pi-gen.git pi-gen
 
-      - name: Add swap space (needed for arm64 chroot)
+      - name: Get version
+        id: ver
         run: |
-          # GitHub runners already have a swapfile — turn it off, resize, turn back on
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-$(cd signaeos && git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure pi-gen
+        run: |
+          cat > pi-gen/config <<EOF
+          IMG_NAME="signaeos-rpi"
+          RELEASE="bookworm"
+          DEPLOY_COMPRESSION="xz"
+          DEPLOY_ZIP=0
+          LOCALE_DEFAULT="en_GB.UTF-8"
+          TARGET_HOSTNAME="signaeos"
+          KEYBOARD_KEYMAP="gb"
+          KEYBOARD_LAYOUT="English (UK)"
+          TIMEZONE_DEFAULT="UTC"
+          ENABLE_SSH=1
+          PUBKEY_SSH_FIRST_USER=""
+          FIRST_USER_NAME="root"
+          FIRST_USER_PASS=""
+          DISABLE_FIRST_BOOT_USER_RENAME=1
+          WPA_COUNTRY="GB"
+          SIGNAEOS_VERSION="${{ steps.ver.outputs.version }}"
+          EOF
+
+      - name: Set up pi-gen stages
+        run: |
+          # Skip stages 3-5 (desktop, Scratch, recommended) — we only want stage 2 (Lite) + our stage
+          touch pi-gen/stage3/SKIP pi-gen/stage4/SKIP pi-gen/stage5/SKIP
+          touch pi-gen/stage4/SKIP_IMAGES pi-gen/stage5/SKIP_IMAGES
+
+          # Copy our stage into pi-gen
+          cp -r signaeos/pi-gen-stage pi-gen/stage-signaeos
+
+          # Substitute version placeholder in run.sh
+          sed -i "s|@@SIGNAEOS_VERSION@@|${{ steps.ver.outputs.version }}|g" \
+            pi-gen/stage-signaeos/01-signaeos-files/00-run.sh
+
+      - name: Add swap space
+        run: |
           sudo swapoff -a
           sudo rm -f /swapfile
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=progress
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
           free -h
 
-      - name: Cache debootstrap tarball
+      - name: Cache pi-gen build
         uses: actions/cache@v4
         with:
-          path: .cache
-          key: debootstrap-bookworm-arm64-v1
+          path: pi-gen/work
+          key: pi-gen-bookworm-${{ hashFiles('pi-gen/stage1/**', 'pi-gen/stage2/**') }}-v2
 
-      - name: Build RPi image
-        run: sudo ./scripts/build-image.sh rpi
-
-      - name: Get version
-        id: version
+      - name: Build image
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          else
-            echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          fi
+          cd pi-gen
+          sudo bash build.sh 2>&1 | tee build.log
+          echo "--- Deploy dir ---"
+          ls -lh deploy/
 
-      - name: Rename image with version
-        run: |
-          mv output/rpi/images/signaeos-rpi.img.xz \
-             output/rpi/images/signaeos-rpi-${{ steps.version.outputs.version }}.img.xz
-
-      - name: Upload image as artifact
+      - name: Upload image
         uses: actions/upload-artifact@v4
         with:
-          name: signaeos-rpi-${{ steps.version.outputs.version }}
-          path: output/rpi/images/signaeos-rpi-${{ steps.version.outputs.version }}.img.xz
+          name: signaeos-rpi-${{ steps.ver.outputs.version }}
+          path: pi-gen/deploy/*.xz
           retention-days: 30
 
   build-x86:
-    name: Build x86_64 Image
+    name: x86_64 Image (debootstrap)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -80,26 +112,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update -q
           sudo apt-get install -y \
-            debootstrap \
-            parted squashfs-tools dosfstools \
-            grub-efi-amd64-bin mtools \
-            curl wget xz-utils git
+            debootstrap parted squashfs-tools dosfstools \
+            grub-efi-amd64-bin mtools curl wget xz-utils git
 
-      - name: Cache debootstrap tarball
+      - name: Add swap space
+        run: |
+          sudo swapoff -a
+          sudo rm -f /swapfile
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      - name: Cache debootstrap
         uses: actions/cache@v4
         with:
           path: .cache
-          key: debootstrap-bookworm-amd64-v1
-
-      - name: Build x86 image
-        run: sudo ./scripts/build-image.sh x86
+          key: debootstrap-bookworm-amd64-v2
 
       - name: Get version
-        id: version
+        id: ver
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -107,67 +143,60 @@ jobs:
             echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Rename image with version
+      - name: Build x86 image
         run: |
-          xz -T0 output/x86/images/signaeos-x86.img
-          mv output/x86/images/signaeos-x86.img.xz \
-             output/x86/images/signaeos-x86-${{ steps.version.outputs.version }}.img.xz
+          # Substitute version
+          sed -i "s|@@SIGNAEOS_VERSION@@|${{ steps.ver.outputs.version }}|g" \
+            pi-gen-stage/01-signaeos-files/00-run.sh
+          sudo SIGNAEOS_VERSION="${{ steps.ver.outputs.version }}" \
+            ./scripts/build-x86.sh
 
-      - name: Upload image as artifact
+      - name: Upload image
         uses: actions/upload-artifact@v4
         with:
-          name: signaeos-x86-${{ steps.version.outputs.version }}
-          path: output/x86/images/signaeos-x86-${{ steps.version.outputs.version }}.img.xz
+          name: signaeos-x86-${{ steps.ver.outputs.version }}
+          path: output/x86/images/*.xz
           retention-days: 30
 
   release:
-    name: Create GitHub Release
+    name: Create Release
     runs-on: ubuntu-24.04
     needs: [build-rpi, build-x86]
-    # Only create a release when triggered by a tag, not a manual run
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
       - name: Get version
-        id: version
+        id: ver
         run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Download RPi image
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: signaeos-rpi-${{ steps.version.outputs.version }}
           path: images/
-
-      - name: Download x86 image
-        uses: actions/download-artifact@v4
-        with:
-          name: signaeos-x86-${{ steps.version.outputs.version }}
-          path: images/
+          merge-multiple: true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          name: SignageOS ${{ steps.version.outputs.version }}
+          name: SignageOS ${{ steps.ver.outputs.version }}
           body: |
-            ## SignageOS ${{ steps.version.outputs.version }}
+            ## SignageOS ${{ steps.ver.outputs.version }}
 
-            ### Flash instructions
+            **Dual display digital signage OS**
+            - Display 1: Chromium/Firefox kiosk (URLs via Stream Deck)
+            - Display 2: Native NDI viewer (sources via Stream Deck)
+            - NDI Access Manager integration
+            - 802.1q VLAN trunk support
+            - Bitfocus Companion Satellite built-in
+            - Web UI at `http://signaeos.local:3000`
 
-            **Raspberry Pi 4 / 5:**
-            1. Download `signaeos-rpi-${{ steps.version.outputs.version }}.img.xz`
-            2. Open Raspberry Pi Imager
-            3. Choose OS → **Use custom image** → select the downloaded file
-            4. Choose your SD card → Write
+            ### Flash — Raspberry Pi 4/5
+            Open **Raspberry Pi Imager** → Use custom image → select `signaeos-rpi-*.img.xz`
 
-            **x86_64 (mini PC / NUC):**
-            1. Download `signaeos-x86-${{ steps.version.outputs.version }}.img.xz`
-            2. Flash to USB: `xzcat signaeos-x86-*.img.xz | sudo dd of=/dev/sdX bs=4M status=progress`
-            3. Boot from USB (ensure UEFI boot enabled in BIOS)
-
-            ### First boot
-            Browse to **http://signaeos.local:3000** to configure URLs, WiFi, and Stream Deck settings.
-          files: |
-            images/signaeos-rpi-${{ steps.version.outputs.version }}.img.xz
-            images/signaeos-x86-${{ steps.version.outputs.version }}.img.xz
+            ### Flash — x86
+            ```
+            xzcat signaeos-x86-*.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+            ```
+          files: images/*.xz
           draft: false
           prerelease: false
