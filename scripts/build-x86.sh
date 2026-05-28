@@ -107,11 +107,11 @@ if [[ -f "$STAGE_DIR/00-packages/packages" ]]; then
   done < "$STAGE_DIR/00-packages/packages"
 fi
 
-# Run the stage script (NDI, Companion Satellite, npm deps, systemd enables)
-chmod +x "$STAGE_DIR/01-signaeos-files/00-run.sh"
-cp "$STAGE_DIR/01-signaeos-files/00-run.sh" "$ROOT/tmp/signaeos-run.sh"
-sed -i "s|@@SIGNAEOS_VERSION@@|$VERSION|g" "$ROOT/tmp/signaeos-run.sh"
-chr "bash /tmp/signaeos-run.sh"
+# Run the stage install script (NDI, Companion Satellite, npm deps, systemd enables)
+chmod +x "$STAGE_DIR/01-signaeos-files/signaeos-install.sh"
+cp "$STAGE_DIR/01-signaeos-files/signaeos-install.sh" "$ROOT/tmp/signaeos-install.sh"
+sed -i "s|@@SIGNAEOS_VERSION@@|$VERSION|g" "$ROOT/tmp/signaeos-install.sh"
+chr "bash /tmp/signaeos-install.sh && rm -f /tmp/signaeos-install.sh"
 
 # ── Configure ─────────────────────────────────────────────────────────────────
 step "System configuration"

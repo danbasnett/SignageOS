@@ -25,7 +25,21 @@ jobs:
           sudo apt-get install -y \
             coreutils quilt parted qemu-user-static debootstrap \
             zerofree zip dosfstools libarchive-tools libcap2-bin \
-            grep rsync xz-utils file git curl bc gpg pigz xxd
+            grep rsync xz-utils file git curl bc gpg pigz xxd \
+            arch-test binfmt-support
+
+      - name: Register arm64 binfmt handler
+        run: |
+          sudo systemctl start binfmt-support || true
+          sudo update-binfmts --enable qemu-aarch64 || true
+          # Manually register if update-binfmts isn't enough
+          if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+            echo ':qemu-aarch64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-aarch64-static:F' \
+              | sudo tee /proc/sys/fs/binfmt_misc/register
+          fi
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 | head -3
+          # Verify arch-test works
+          arch-test aarch64 && echo "aarch64 emulation OK" || echo "WARNING: aarch64 test failed"
 
       - name: Clone pi-gen
         run: git clone --depth=1 https://github.com/RPi-Distro/pi-gen.git pi-gen
@@ -41,24 +55,24 @@ jobs:
 
       - name: Configure pi-gen
         run: |
-          cat > pi-gen/config <<EOF
-          IMG_NAME="signaeos-rpi"
-          RELEASE="bookworm"
-          DEPLOY_COMPRESSION="xz"
-          DEPLOY_ZIP=0
-          LOCALE_DEFAULT="en_GB.UTF-8"
-          TARGET_HOSTNAME="signaeos"
-          KEYBOARD_KEYMAP="gb"
-          KEYBOARD_LAYOUT="English (UK)"
-          TIMEZONE_DEFAULT="UTC"
-          ENABLE_SSH=1
-          PUBKEY_SSH_FIRST_USER=""
-          FIRST_USER_NAME="root"
-          FIRST_USER_PASS=""
-          DISABLE_FIRST_BOOT_USER_RENAME=1
-          WPA_COUNTRY="GB"
-          SIGNAEOS_VERSION="${{ steps.ver.outputs.version }}"
-          EOF
+          cat > pi-gen/config <<'EOF'
+IMG_NAME="signaeos-rpi"
+RELEASE="bookworm"
+DEPLOY_COMPRESSION="xz"
+DEPLOY_ZIP=0
+LOCALE_DEFAULT="en_GB.UTF-8"
+TARGET_HOSTNAME="signaeos"
+KEYBOARD_KEYMAP="gb"
+KEYBOARD_LAYOUT="English (UK)"
+TIMEZONE_DEFAULT="UTC"
+ENABLE_SSH=1
+PUBKEY_SSH_FIRST_USER=""
+FIRST_USER_NAME="root"
+FIRST_USER_PASS=""
+DISABLE_FIRST_BOOT_USER_RENAME=1
+WPA_COUNTRY="GB"
+EOF
+          echo "SIGNAEOS_VERSION=${{ steps.ver.outputs.version }}" >> pi-gen/config
 
       - name: Set up pi-gen stages
         run: |
@@ -147,7 +161,7 @@ jobs:
         run: |
           # Substitute version
           sed -i "s|@@SIGNAEOS_VERSION@@|${{ steps.ver.outputs.version }}|g" \
-            pi-gen-stage/01-signaeos-files/00-run.sh
+            pi-gen-stage/01-signaeos-files/signaeos-install.sh
           sudo SIGNAEOS_VERSION="${{ steps.ver.outputs.version }}" \
             ./scripts/build-x86.sh
 
