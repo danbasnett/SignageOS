@@ -47,13 +47,12 @@ UDEV
 echo "8021q" >> /etc/modules
 
 # ── Lock default user, enable root SSH ───────────────────────────────────────
-# pi-gen creates a 'signaeos' user — lock its password, we use key auth only
-passwd -l signaeos 2>/dev/null || true
+# pi-gen creates a 'signaeos' user — add to sudoers for management
+echo 'signaeos ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/signaeos
+chmod 440 /etc/sudoers.d/signaeos
 # Allow root login via SSH key
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
-# Give root sudo without password (signaeos-init runs as root)
-echo 'root ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/root-nopasswd
 
 # ── Mark executables ──────────────────────────────────────────────────────────
 chmod +x /usr/bin/signaeos-display1 /usr/bin/signaeos-display2 /usr/bin/signaeos-ctl
