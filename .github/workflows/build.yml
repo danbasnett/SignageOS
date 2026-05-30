@@ -76,16 +76,22 @@ jobs:
 
       - name: Set up pi-gen stages
         run: |
-          # Skip stages 3-5 (desktop, Scratch, recommended) — we only want stage 2 (Lite) + our stage
+          # Skip stages 3-5 (desktop etc) — we only want stage 2 (Lite) + our stages
           touch pi-gen/stage3/SKIP pi-gen/stage4/SKIP pi-gen/stage5/SKIP
-          touch pi-gen/stage4/SKIP_IMAGES pi-gen/stage5/SKIP_IMAGES
+          touch pi-gen/stage3/SKIP_IMAGES pi-gen/stage4/SKIP_IMAGES pi-gen/stage5/SKIP_IMAGES
 
-          # Copy our stage into pi-gen
-          cp -r signaeos/pi-gen-stage pi-gen/stage-signaeos
+          # Copy our stages into pi-gen
+          cp -r signaeos/pi-gen-stage/. pi-gen/stage-signaeos/
 
-          # Substitute version placeholder in run.sh
+          # Substitute version placeholder
           sed -i "s|@@SIGNAEOS_VERSION@@|${{ steps.ver.outputs.version }}|g" \
-            pi-gen/stage-signaeos/01-signaeos-files/00-run.sh
+            pi-gen/stage-signaeos/01-signaeos-files/signaeos-install.sh
+
+          # Make all run scripts executable
+          find pi-gen/stage-signaeos -name "*.sh" -exec chmod +x {} \;
+
+          # Verify structure
+          ls -la pi-gen/stage-signaeos/
 
       - name: Add swap space
         run: |

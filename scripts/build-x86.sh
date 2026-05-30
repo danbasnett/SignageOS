@@ -119,6 +119,11 @@ echo "signaeos" > "$ROOT/etc/hostname"
 chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales"
 chr "echo 'en_GB.UTF-8 UTF-8' >> /etc/locale.gen && locale-gen"
 chr "ln -sf /usr/share/zoneinfo/UTC /etc/localtime"
+# Create signaeos user with sudo access
+chr "useradd -m -s /bin/bash signaeos 2>/dev/null || true"
+chr "echo 'signaeos:signaeos' | chpasswd"
+chr "echo 'signaeos ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/010_signaeos-nopasswd"
+chr "chmod 440 /etc/sudoers.d/010_signaeos-nopasswd"
 chr "passwd -d root; passwd -l root"
 chr "apt-get clean && rm -rf /var/lib/apt/lists/*"
 
