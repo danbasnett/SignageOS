@@ -154,31 +154,48 @@ pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;backg
   </div>
 </section>
 
-<!-- ── NDI Access Manager ── -->
+<!-- ── NDI Sources ── -->
 <section class="sec" id="s-ndi-am">
-  <h2>NDI Access Manager</h2><p class="sub">Control source visibility and receiver registration via the NDI AM REST API.</p>
-  <div class="card"><h3>Access Manager Server</h3>
-    <div class="row2">
-      <div class="field"><label>IP Address</label><input id="am_ip" type="text" placeholder="192.168.1.50"></div>
-      <div class="field"><label>Port</label><input id="am_port" type="number" placeholder="80" value="80"></div>
-    </div>
-    <div class="field"><label>NDI Groups (comma-separated, blank = all)</label>
-      <input id="am_groups" type="text" placeholder="public,studio1"></div>
-    <div class="acts">
-      <button class="btn primary" onclick="saveAM()">Save</button>
-      <button class="btn ghost" onclick="registerReceiver()">Register This Device</button>
-      <button class="btn ghost" onclick="loadAMSources()">Load Sources</button>
+  <h2>NDI Sources</h2>
+  <p class="sub">Discover sources automatically, add Access Manager servers, or add sources manually by IP.</p>
+
+  <!-- All sources -->
+  <div class="card">
+    <h3>All Sources &nbsp;<button class="btn ghost sm" onclick="refreshNdiSources()">🔍 Refresh</button></h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:12px">Sources from local discovery, AM servers, and manual entries. Click to switch Display 2.</p>
+    <div id="ndi-all-sources"><span style="color:var(--m);font-size:12px">Click Refresh to discover sources…</span></div>
+  </div>
+
+  <!-- AM Servers -->
+  <div class="card">
+    <h3>Access Manager Servers</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">Add NDI Access Manager servers to pull their source lists. Supports multiple servers on different subnets.</p>
+    <div id="am-server-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px"></div>
+    <div style="display:grid;grid-template-columns:1fr 80px 1fr 36px;gap:7px;align-items:end">
+      <div><label style="font-size:11px;color:var(--m)">IP Address</label>
+        <input id="new-am-ip" type="text" placeholder="10.101.200.14"></div>
+      <div><label style="font-size:11px;color:var(--m)">Port</label>
+        <input id="new-am-port" type="number" placeholder="80" value="80"></div>
+      <div><label style="font-size:11px;color:var(--m)">Label</label>
+        <input id="new-am-label" type="text" placeholder="Studio AM"></div>
+      <button class="btn ghost" onclick="addAmServer()" style="align-self:end">+</button>
     </div>
   </div>
-  <div class="card" id="am-sources-card" style="display:none">
-    <h3>Sources <button class="btn ghost sm" style="margin-left:8px" onclick="loadAMSources()">Refresh</button></h3>
-    <table class="tbl"><thead><tr><th>Name</th><th>IP</th><th>Group</th><th>Status</th><th>Actions</th></tr></thead>
-    <tbody id="am-sources-body"></tbody></table>
-  </div>
-  <div class="card" id="am-receivers-card" style="display:none">
-    <h3>Receivers <button class="btn ghost sm" style="margin-left:8px" onclick="loadAMReceivers()">Refresh</button></h3>
-    <table class="tbl"><thead><tr><th>Name</th><th>IP</th><th>Groups</th><th>Status</th></tr></thead>
-    <tbody id="am-receivers-body"></tbody></table>
+
+  <!-- Manual Sources -->
+  <div class="card">
+    <h3>Manual Sources</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">Add sources by NDI name and IP directly — works across subnets where multicast can't reach.</p>
+    <div id="manual-source-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 120px 36px;gap:7px;align-items:end">
+      <div><label style="font-size:11px;color:var(--m)">Label</label>
+        <input id="new-src-label" type="text" placeholder="ATEM Mini"></div>
+      <div><label style="font-size:11px;color:var(--m)">NDI Source Name</label>
+        <input id="new-src-name" type="text" placeholder="ATEM MINI (192.168.1.50)"></div>
+      <div><label style="font-size:11px;color:var(--m)">IP (optional)</label>
+        <input id="new-src-ip" type="text" placeholder="192.168.1.50"></div>
+      <button class="btn ghost" onclick="addManualSource()" style="align-self:end">+</button>
+    </div>
   </div>
 </section>
 
@@ -286,7 +303,7 @@ function go(el) {
   el.classList.add('on');
   document.getElementById('s-' + el.dataset.s).classList.add('on');
   if (el.dataset.s === 'system') loadSystem();
-  if (el.dataset.s === 'ndi-am') loadAMSources();
+  if (el.dataset.s === 'ndi-am') { renderAmServers(); renderManualSources(); refreshNdiSources(); }
 }
 
 function toast(msg, type='ok') {
@@ -324,7 +341,7 @@ function fill() {
   v('am_port',      C.ndi?.access_manager_port || 80);
   v('am_groups',    (C.ndi?.groups || []).join(','));
   v('ssh_keys',     C.ssh?.authorized_keys || '');
-  renderUrls(); renderSources(); renderVlans();
+  renderUrls(); renderSources(); renderVlans(); renderAmServers(); renderManualSources();
 }
 
 function v(id, val) { const e = document.getElementById(id); if (e) e.value = val; }
@@ -472,63 +489,114 @@ function addVlan() {
 }
 function rmVlan(i) { C.network.vlans.splice(i, 1); renderVlans(); }
 
-// ── NDI Access Manager ─────────────────────────────────────────────────────
-async function loadAMSources() {
-  const r = await api('GET', '/api/ndi/am/sources');
-  const card = document.getElementById('am-sources-card');
-  const body = document.getElementById('am-sources-body');
-  card.style.display = '';
-  body.innerHTML = '';
-  const sources = Array.isArray(r) ? r : (r.sources || r.data || []);
-  if (!sources.length) {
-    body.innerHTML = '<tr><td colspan="5" style="color:var(--m);text-align:center;padding:16px">No sources — check Access Manager IP</td></tr>';
+// ── NDI Sources ───────────────────────────────────────────────────────────
+async function refreshNdiSources() {
+  const el = document.getElementById('ndi-all-sources');
+  el.innerHTML = '<span style="font-size:12px;color:var(--m)">Discovering…</span>';
+  const r = await api('GET', '/api/ndi/sources');
+  el.innerHTML = '';
+  if (!r.ok || !r.sources?.length) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--m)">No sources found. Add an AM server or manual source below.</span>';
     return;
   }
-  sources.forEach(s => {
-    const tr = document.createElement('tr');
-    const enabled = s.enabled !== false;
-    tr.innerHTML = `
-      <td>${esc(s.name||s.sourceName||'')}</td>
-      <td><code>${esc(s.ip||s.address||'')}</code></td>
-      <td>${esc(s.group||s.groupName||'')}</td>
-      <td><span class="badge ${enabled?'badge-g':'badge-r'}">${enabled?'Visible':'Hidden'}</span></td>
-      <td>
-        <button class="btn ghost sm" onclick="amToggle('${s.id||s.sourceId}',${!enabled})">${enabled?'Hide':'Show'}</button>
-        <button class="btn ghost sm" onclick="sendToD2('${esc(s.name||s.sourceName)}')">→ Display 2</button>
-      </td>`;
-    body.appendChild(tr);
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+  r.sources.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'sw' + (s.name === C.display2?.current_source ? ' on' : '');
+    const badge = s.source === 'manual' ? '📌' : s.source === 'am' ? '🔗' : '📡';
+    b.innerHTML = `${badge} ${esc(s.label || s.name)}`;
+    b.title = `${s.name}${s.ip ? ' — ' + s.ip : ''} (${s.source})`;
+    b.onclick = () => switchD2(s.name);
+    wrap.appendChild(b);
   });
-  loadAMReceivers();
-}
-async function amToggle(id, visible) {
-  const r = await api('PUT', `/api/ndi/am/sources/${id}`, { enabled: visible });
-  r.error ? toast('AM error: ' + r.error, 'err') : toast(visible ? 'Source shown' : 'Source hidden');
-  loadAMSources();
-}
-function sendToD2(name) { switchD2(name); toast(`Switching Display 2 → ${name}`); }
-async function loadAMReceivers() {
-  const r = await api('GET', '/api/ndi/am/receivers');
-  const card = document.getElementById('am-receivers-card');
-  const body = document.getElementById('am-receivers-body');
-  card.style.display = '';
-  body.innerHTML = '';
-  const receivers = Array.isArray(r) ? r : (r.receivers || r.data || []);
-  if (!receivers.length) { body.innerHTML = '<tr><td colspan="4" style="color:var(--m);text-align:center;padding:12px">No receivers registered</td></tr>'; return; }
-  receivers.forEach(rec => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${esc(rec.name||'')}</td><td><code>${esc(rec.ip||'')}</code></td>
-      <td>${esc((rec.groups||[]).join(', '))}</td>
-      <td><span class="badge badge-g">Online</span></td>`;
-    body.appendChild(tr);
-  });
-}
-async function registerReceiver() {
-  const r = await api('POST', '/api/ndi/am/register');
-  r.error ? toast('Register failed: ' + r.error, 'err') : toast('Registered with Access Manager!');
-  loadAMReceivers();
+  el.appendChild(wrap);
+  // Also update D2 switch buttons
+  renderD2Btns();
 }
 
-// ── Saves ─────────────────────────────────────────────────────────────────
+function renderAmServers() {
+  const el = document.getElementById('am-server-list');
+  if (!el) return;
+  el.innerHTML = '';
+  ((C.ndi || {}).access_managers || []).forEach(am => {
+    const d = document.createElement('div');
+    d.style.cssText = 'display:grid;grid-template-columns:1fr 80px 1fr 36px;gap:7px;align-items:center';
+    d.innerHTML = `
+      <input type="text" value="${esc(am.ip)}" placeholder="IP" readonly style="background:var(--bg)">
+      <input type="number" value="${am.port||80}" placeholder="Port" readonly style="background:var(--bg)">
+      <input type="text" value="${esc(am.label||am.ip)}" placeholder="Label" readonly style="background:var(--bg)">
+      <button class="del" onclick="removeAmServer('${esc(am.ip)}')">✕</button>`;
+    el.appendChild(d);
+  });
+}
+
+function renderManualSources() {
+  const el = document.getElementById('manual-source-list');
+  if (!el) return;
+  el.innerHTML = '';
+  ((C.ndi || {}).manual_sources || []).forEach(s => {
+    const d = document.createElement('div');
+    d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 120px 36px;gap:7px;align-items:center';
+    d.innerHTML = `
+      <input type="text" value="${esc(s.label||s.name)}" placeholder="Label" readonly style="background:var(--bg)">
+      <input type="text" value="${esc(s.name)}" placeholder="NDI Name" readonly style="background:var(--bg)">
+      <input type="text" value="${esc(s.ip||'')}" placeholder="IP" readonly style="background:var(--bg)">
+      <button class="del" onclick="removeManualSource('${esc(s.name)}')">✕</button>`;
+    el.appendChild(d);
+  });
+}
+
+async function addAmServer() {
+  const ip    = document.getElementById('new-am-ip').value.trim();
+  const port  = parseInt(document.getElementById('new-am-port').value) || 80;
+  const label = document.getElementById('new-am-label').value.trim() || ip;
+  if (!ip) return toast('Enter an IP address', 'err');
+  const r = await api('POST', '/api/ndi/am', { ip, port, label });
+  if (r.ok) {
+    C = await api('GET', '/api/config');
+    renderAmServers();
+    document.getElementById('new-am-ip').value = '';
+    document.getElementById('new-am-label').value = '';
+    toast(`Added AM server: ${ip}`);
+  } else toast('Error: ' + r.error, 'err');
+}
+
+async function removeAmServer(ip) {
+  const r = await api('DELETE', `/api/ndi/am/${encodeURIComponent(ip)}`);
+  if (r.ok) {
+    C = await api('GET', '/api/config');
+    renderAmServers();
+    toast('AM server removed');
+  }
+}
+
+async function addManualSource() {
+  const label = document.getElementById('new-src-label').value.trim();
+  const name  = document.getElementById('new-src-name').value.trim();
+  const ip    = document.getElementById('new-src-ip').value.trim();
+  if (!name) return toast('Enter the NDI source name', 'err');
+  const r = await api('POST', '/api/ndi/manual', { label: label || name, name, ip });
+  if (r.ok) {
+    C = await api('GET', '/api/config');
+    renderManualSources();
+    document.getElementById('new-src-label').value = '';
+    document.getElementById('new-src-name').value = '';
+    document.getElementById('new-src-ip').value = '';
+    toast(`Added: ${name}`);
+    renderD2Btns();
+  } else toast('Error: ' + r.error, 'err');
+}
+
+async function removeManualSource(name) {
+  const r = await api('DELETE', `/api/ndi/manual/${encodeURIComponent(name)}`);
+  if (r.ok) {
+    C = await api('GET', '/api/config');
+    renderManualSources();
+    toast('Source removed');
+  }
+}
+
 async function saveD1() {
   C.display_name = document.getElementById('display_name').value;
   C.display1 = C.display1 || {};
@@ -540,14 +608,6 @@ async function saveD1() {
 async function saveD2() {
   const r = await api('POST', '/api/config', C);
   r.ok ? (toast('Display 2 saved!'), renderD2Btns()) : toast('Error: ' + r.error, 'err');
-}
-async function saveAM() {
-  C.ndi = C.ndi || {};
-  C.ndi.access_manager_ip   = document.getElementById('am_ip').value;
-  C.ndi.access_manager_port = parseInt(document.getElementById('am_port').value) || 80;
-  C.ndi.groups = document.getElementById('am_groups').value.split(',').map(s=>s.trim()).filter(Boolean);
-  const r = await api('POST', '/api/config', C);
-  r.ok ? toast('Access Manager config saved!') : toast('Error: ' + r.error, 'err');
 }
 async function saveVlans() {
   C.network = C.network || {};
