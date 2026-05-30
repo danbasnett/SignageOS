@@ -106,22 +106,46 @@ info "Node.js $(node --version) installed"
 # ── Companion Satellite ───────────────────────────────────────────────────────
 step "Installing Companion Satellite"
 
-# Fetch latest release tag dynamically so we never hardcode a stale version
-SAT_TAG=$(curl -fsSL "https://api.github.com/repos/bitfocus/companion-satellite/releases/latest" \
-  | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
+# Get latest release info from GitHub API
+SAT_RELEASE=$(curl -fsSL "https://api.github.com/repos/bitfocus/companion-satellite/releases/latest")
+SAT_TAG=$(echo "$SAT_RELEASE" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
 
 if [ -z "$SAT_TAG" ]; then
-  warn "Could not fetch Companion Satellite release tag — skipping"
+  warn "Could not fetch Companion Satellite release info — skipping"
 else
-  SAT_URL="https://github.com/bitfocus/companion-satellite/releases/download/${SAT_TAG}/companion-satellite-${PLATFORM}.tar.gz"
-  info "Downloading Companion Satellite ${SAT_TAG}..."
-  mkdir -p /opt/companion-satellite
-  if curl -fsSL "$SAT_URL" | tar -xzf - -C /opt/companion-satellite --strip-components=1; then
-    info "Companion Satellite ${SAT_TAG} installed"
+  info "Latest Companion Satellite: $SAT_TAG"
+
+  # Find the right asset URL for our platform — inspect actual asset names
+  SAT_URL=$(echo "$SAT_RELEASE" | grep '"browser_download_url"' | grep "$PLATFORM" | grep '\.tar\.gz' | head -1 | sed 's/.*"browser_download_url": *"\(.*\)".*/\1/')
+
+  # Fallback: try common naming patterns
+  if [ -z "$SAT_URL" ]; then
+    SAT_VER=$(echo "$SAT_TAG" | tr -d 'v')
+    for pattern in \
+      "companion-satellite-${PLATFORM}.tar.gz" \
+      "satellite-${PLATFORM}.tar.gz" \
+      "companion-satellite_${SAT_VER}_${PLATFORM}.tar.gz"; do
+      CANDIDATE="https://github.com/bitfocus/companion-satellite/releases/download/${SAT_TAG}/${pattern}"
+      if curl -fsSL --head "$CANDIDATE" 2>/dev/null | grep -q "200"; then
+        SAT_URL="$CANDIDATE"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$SAT_URL" ]; then
+    warn "Could not find Companion Satellite download URL for $PLATFORM"
+    warn "Install manually from: https://github.com/bitfocus/companion-satellite/releases"
   else
-    warn "Download failed — trying without --strip-components"
-    curl -fsSL "$SAT_URL" | tar -xzf - -C /opt/companion-satellite || \
-      warn "Companion Satellite install failed — install manually later"
+    info "Downloading from: $SAT_URL"
+    mkdir -p /opt/companion-satellite
+    TMP_SAT=$(mktemp -d)
+    curl -fsSL "$SAT_URL" -o "$TMP_SAT/satellite.tar.gz"
+    # Try with strip-components first, fall back without
+    tar -xzf "$TMP_SAT/satellite.tar.gz" -C /opt/companion-satellite --strip-components=1 2>/dev/null || \
+    tar -xzf "$TMP_SAT/satellite.tar.gz" -C /opt/companion-satellite
+    rm -rf "$TMP_SAT"
+    info "Companion Satellite $SAT_TAG installed"
   fi
 fi
 
@@ -147,15 +171,49 @@ step "Installing SignageOS files"
 
 FILES_URL="https://github.com/${GITHUB_REPO}/releases/download/v${SIGNAEOS_VERSION}/signaeos-files.tar.gz"
 TMP=$(mktemp -d)
-curl -fsSL "$FILES_URL" -o "$TMP/signaeos-files.tar.gz"
-tar -xzf "$TMP/signaeos-files.tar.gz" -C /
+
+if curl -fsSL --head "$FILES_URL" 2>/dev/null | grep -q "200\|302"; then
+  info "Downloading SignageOS files from release..."
+  curl -fsSL "$FILES_URL" -o "$TMP/signaeos-files.tar.gz"
+  tar -xzf "$TMP/signaeos-files.tar.gz" -C /
+else
+  warn "Release tarball not found — downloading files directly from repository..."
+  # Download each file individually from the repo
+  BASE_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
+
+  # Systemd services
+  for svc in signaeos-display1 signaeos-display2 signaeos-webui \
+             companion-satellite weston signaeos-update; do
+    mkdir -p /etc/systemd/system
+    curl -fsSL "$BASE_URL/rootfs/etc/systemd/system/${svc}.service" \
+      -o "/etc/systemd/system/${svc}.service" 2>/dev/null || true
+  done
+  curl -fsSL "$BASE_URL/rootfs/etc/systemd/system/signaeos-update.timer" \
+    -o "/etc/systemd/system/signaeos-update.timer" 2>/dev/null || true
+
+  # Weston config
+  mkdir -p /etc/weston
+  curl -fsSL "$BASE_URL/rootfs/etc/weston/weston.ini" \
+    -o "/etc/weston/weston.ini" 2>/dev/null || true
+
+  # Binaries
+  mkdir -p /usr/bin
+  for bin in signaeos-display1 signaeos-display2 signaeos-ctl signaeos-update; do
+    curl -fsSL "$BASE_URL/rootfs/usr/bin/${bin}" -o "/usr/bin/${bin}"
+    chmod +x "/usr/bin/${bin}"
+  done
+
+  # Web UI
+  mkdir -p /usr/share/signaeos/webui/public
+  curl -fsSL "$BASE_URL/rootfs/usr/share/signaeos/webui/server.js" \
+    -o "/usr/share/signaeos/webui/server.js"
+  curl -fsSL "$BASE_URL/rootfs/usr/share/signaeos/webui/package.json" \
+    -o "/usr/share/signaeos/webui/package.json"
+  curl -fsSL "$BASE_URL/rootfs/usr/share/signaeos/webui/public/index.html" \
+    -o "/usr/share/signaeos/webui/public/index.html"
+fi
+
 rm -rf "$TMP"
-
-chmod +x /usr/bin/signaeos-display1
-chmod +x /usr/bin/signaeos-display2
-chmod +x /usr/bin/signaeos-ctl
-chmod +x /usr/bin/signaeos-update
-
 info "SignageOS files installed"
 
 # ── Web UI dependencies ───────────────────────────────────────────────────────
