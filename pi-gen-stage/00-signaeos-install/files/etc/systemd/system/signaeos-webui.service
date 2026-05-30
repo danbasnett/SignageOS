@@ -1,0 +1,18 @@
+[Unit]
+Description=SignageOS Web UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/share/signaeos/webui
+ExecStart=/usr/bin/node /usr/share/signaeos/webui/server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=SIGNAEOS_CONFIG=/data/signaeos/config.json
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signaeos-webui
+
+[Install]
+WantedBy=multi-user.target

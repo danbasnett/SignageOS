@@ -71,27 +71,36 @@ jobs:
             'FIRST_USER_PASS="signaeos"' \
             'DISABLE_FIRST_BOOT_USER_RENAME=1' \
             'WPA_COUNTRY="GB"' \
+            'STAGE_LIST="stage0 stage1 stage2 stage-signaeos"' \
             > pi-gen/config
           echo "SIGNAEOS_VERSION=${{ steps.ver.outputs.version }}" >> pi-gen/config
 
       - name: Set up pi-gen stages
         run: |
-          # Skip stages 3-5 (desktop etc) — we only want stage 2 (Lite) + our stages
+          # Skip default stages 3-5
           touch pi-gen/stage3/SKIP pi-gen/stage4/SKIP pi-gen/stage5/SKIP
           touch pi-gen/stage3/SKIP_IMAGES pi-gen/stage4/SKIP_IMAGES pi-gen/stage5/SKIP_IMAGES
 
-          # Copy our stages into pi-gen
-          cp -r signaeos/pi-gen-stage/. pi-gen/stage-signaeos/
+          # Create our custom stage directory inside pi-gen
+          mkdir -p pi-gen/stage-signaeos
 
-          # Substitute version placeholder
+          # Copy packages list (pi-gen picks up 00-packages file directly in stage dir)
+          cp signaeos/pi-gen-stage/00-packages/packages \
+             pi-gen/stage-signaeos/packages
+
+          # Copy our install subdirectory (files + run-chroot script)
+          cp -r signaeos/pi-gen-stage/00-signaeos-install \
+                pi-gen/stage-signaeos/
+
+          # Substitute version
           sed -i "s|@@SIGNAEOS_VERSION@@|${{ steps.ver.outputs.version }}|g" \
-            pi-gen/stage-signaeos/01-signaeos-files/signaeos-install.sh
+            pi-gen/stage-signaeos/00-signaeos-install/00-run-chroot.sh
 
-          # Make all run scripts executable
+          # Make all scripts executable
           find pi-gen/stage-signaeos -name "*.sh" -exec chmod +x {} \;
 
-          # Verify structure
-          ls -la pi-gen/stage-signaeos/
+          echo "Stage structure:"
+          find pi-gen/stage-signaeos -type f | sort
 
       - name: Add swap space
         run: |

@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# signaeos-ctl — control both displays from the command line
+# Usage:
+#   signaeos-ctl d1 status
+#   signaeos-ctl d1 switch 2
+#   signaeos-ctl d1 next
+#   signaeos-ctl d2 source "ATEM MINI (192.168.1.50)"
+#   signaeos-ctl d2 next
+#   signaeos-ctl d2 discover
+#   signaeos-ctl d2 am sources
+#   signaeos-ctl d2 am register
+
+D1_SOCK="/run/signaeos/display1.sock"
+D2_SOCK="/run/signaeos/display2.sock"
+
+die() { echo "Error: $*" >&2; exit 1; }
+
+send() {
+  local sock="$1" payload="$2"
+  [[ ! -S "$sock" ]] && die "Socket $sock not found — is the daemon running?"
+  echo "$payload" | socat - "UNIX-CONNECT:$sock"
+  echo
+}
+
+DISPLAY="${1:-}"; shift || true
+CMD="${1:-status}"; shift || true
+
+case "$DISPLAY" in
+  d1|display1)
+    SOCK="$D1_SOCK"
+    case "$CMD" in
+      status)        send "$SOCK" '{"cmd":"status"}' ;;
+      next)          send "$SOCK" '{"cmd":"next"}' ;;
+      prev)          send "$SOCK" '{"cmd":"prev"}' ;;
+      reload)        send "$SOCK" '{"cmd":"reload"}' ;;
+      switch)        [[ -z "${1:-}" ]] && die "Usage: signaeos-ctl d1 switch <index>"
+                     send "$SOCK" "{\"cmd\":\"switch\",\"index\":${1}}" ;;
+      set-browser)   [[ -z "${1:-}" ]] && die "Usage: signaeos-ctl d1 set-browser <chromium|firefox>"
+                     send "$SOCK" "{\"cmd\":\"set_browser\",\"browser\":\"${1}\"}" ;;
+      *)             die "Unknown d1 command: $CMD" ;;
+    esac
+    ;;
+
+  d2|display2)
+    SOCK="$D2_SOCK"
+    case "$CMD" in
+      status)        send "$SOCK" '{"cmd":"status"}' ;;
+      next)          send "$SOCK" '{"cmd":"next"}' ;;
+      prev)          send "$SOCK" '{"cmd":"prev"}' ;;
+      discover)      send "$SOCK" '{"cmd":"discover"}' ;;
+      source)        [[ -z "${1:-}" ]] && die "Usage: signaeos-ctl d2 source \"Source Name\""
+                     send "$SOCK" "{\"cmd\":\"source\",\"source\":\"${1}\"}" ;;
+      am)
+        SUB="${1:-}"; shift || true
+        case "$SUB" in
+          sources)    send "$SOCK" '{"cmd":"am_sources"}' ;;
+          groups)     send "$SOCK" '{"cmd":"am_groups"}' ;;
+          receivers)  send "$SOCK" '{"cmd":"am_receivers"}' ;;
+          register)   send "$SOCK" '{"cmd":"am_register"}' ;;
+          show)       [[ -z "${1:-}" ]] && die "Usage: signaeos-ctl d2 am show <source_id>"
+                      send "$SOCK" "{\"cmd\":\"am_set_visibility\",\"source_id\":\"${1}\",\"visible\":true}" ;;
+          hide)       [[ -z "${1:-}" ]] && die "Usage: signaeos-ctl d2 am hide <source_id>"
+                      send "$SOCK" "{\"cmd\":\"am_set_visibility\",\"source_id\":\"${1}\",\"visible\":false}" ;;
+          *)          die "Unknown am subcommand: $SUB" ;;
+        esac
+        ;;
+      *)             die "Unknown d2 command: $CMD" ;;
+    esac
+    ;;
+
+  *)
+    cat <<'USAGE'
+Usage: signaeos-ctl <display> <command>
+
+Display 1 (Web/Chromium):
+  signaeos-ctl d1 status
+  signaeos-ctl d1 switch <index>
+  signaeos-ctl d1 next | prev | reload
+  signaeos-ctl d1 set-browser <chromium|firefox>
+
+Display 2 (NDI):
+  signaeos-ctl d2 status
+  signaeos-ctl d2 source "<NDI Source Name>"
+  signaeos-ctl d2 next | prev
+  signaeos-ctl d2 discover
+  signaeos-ctl d2 am sources
+  signaeos-ctl d2 am groups
+  signaeos-ctl d2 am receivers
+  signaeos-ctl d2 am register
+  signaeos-ctl d2 am show <source_id>
+  signaeos-ctl d2 am hide <source_id>
+USAGE
+    exit 1
+    ;;
+esac

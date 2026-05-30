@@ -1,0 +1,7 @@
+[Unit]
+Description=SignageOS Update Check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/signaeos-update check
+StandardOutput=journal

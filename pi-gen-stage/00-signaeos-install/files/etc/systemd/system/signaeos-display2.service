@@ -1,0 +1,19 @@
+[Unit]
+Description=SignageOS Display 2 (NDI)
+After=weston.service signaeos-display1.service
+Wants=weston.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/signaeos-display2
+Restart=always
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=HOME=/root
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signaeos-display2
+
+[Install]
+WantedBy=multi-user.target
