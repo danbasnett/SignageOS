@@ -14,7 +14,6 @@ set -euo pipefail
 SIGNAEOS_VERSION="@@VERSION@@"
 GITHUB_REPO="@@GITHUB_REPO@@"
 NODE_VERSION="20"
-COMPANION_SAT_VERSION="2.2.1"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' N='\033[0m'
@@ -105,12 +104,26 @@ fi
 info "Node.js $(node --version) installed"
 
 # ── Companion Satellite ───────────────────────────────────────────────────────
-step "Installing Companion Satellite $COMPANION_SAT_VERSION"
+step "Installing Companion Satellite"
 
-SAT_URL="https://github.com/bitfocus/companion-satellite/releases/download/v${COMPANION_SAT_VERSION}/companion-satellite-${PLATFORM}.tar.gz"
-mkdir -p /opt/companion-satellite
-curl -fsSL "$SAT_URL" | tar -xzf - -C /opt/companion-satellite --strip-components=1
-info "Companion Satellite installed"
+# Fetch latest release tag dynamically so we never hardcode a stale version
+SAT_TAG=$(curl -fsSL "https://api.github.com/repos/bitfocus/companion-satellite/releases/latest" \
+  | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
+
+if [ -z "$SAT_TAG" ]; then
+  warn "Could not fetch Companion Satellite release tag — skipping"
+else
+  SAT_URL="https://github.com/bitfocus/companion-satellite/releases/download/${SAT_TAG}/companion-satellite-${PLATFORM}.tar.gz"
+  info "Downloading Companion Satellite ${SAT_TAG}..."
+  mkdir -p /opt/companion-satellite
+  if curl -fsSL "$SAT_URL" | tar -xzf - -C /opt/companion-satellite --strip-components=1; then
+    info "Companion Satellite ${SAT_TAG} installed"
+  else
+    warn "Download failed — trying without --strip-components"
+    curl -fsSL "$SAT_URL" | tar -xzf - -C /opt/companion-satellite || \
+      warn "Companion Satellite install failed — install manually later"
+  fi
+fi
 
 # ── NDI SDK ───────────────────────────────────────────────────────────────────
 step "Installing NDI SDK"
