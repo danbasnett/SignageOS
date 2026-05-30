@@ -1,5 +1,5 @@
 [Unit]
-Description=SignageOS Display 1 (Web/Chromium)
+Description=SignageOS Display 1 (Web)
 After=weston.service signaeos-webui.service
 Wants=weston.service
 

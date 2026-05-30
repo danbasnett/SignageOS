@@ -26,103 +26,56 @@ jobs:
             echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Substitute version and repo placeholders
+      - name: Substitute placeholders
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           REPO="${{ github.repository }}"
+          sed -i "s|@@VERSION@@|${VERSION}|g;s|@@GITHUB_REPO@@|${REPO}|g" install.sh
+          sed -i "s|@@GITHUB_REPO@@|${REPO}|g" rootfs/usr/bin/signaeos-update
 
-          # Substitute in provision script
-          sed -i "s|@@VERSION@@|${VERSION}|g"     provision/signaeos-provision.sh
-          sed -i "s|@@GITHUB_REPO@@|${REPO}|g"    provision/signaeos-provision.sh
-          sed -i "s|@@VERSION@@|${VERSION}|g"     provision/install.sh
-
-          # Substitute in rootfs files
-          sed -i "s|@@GITHUB_REPO@@|${REPO}|g"    rootfs/usr/bin/signaeos-update
-
-      - name: Install npm dependencies
+      - name: Install web UI npm deps
         run: |
           cd rootfs/usr/share/signaeos/webui
           npm install --production --no-audit --no-fund
 
       - name: Package signaeos-files.tar.gz
         run: |
-          # This tarball is extracted to / on the device during provisioning
-          # and also used for OTA updates
-          tar -czf signaeos-files.tar.gz \
-            -C rootfs \
-            etc/systemd/system/signaeos-display1.service \
-            etc/systemd/system/signaeos-display2.service \
-            etc/systemd/system/signaeos-webui.service \
-            etc/systemd/system/companion-satellite.service \
-            etc/systemd/system/weston.service \
-            etc/systemd/system/signaeos-update.service \
-            etc/systemd/system/signaeos-update.timer \
-            etc/weston/weston.ini \
-            usr/bin/signaeos-display1 \
-            usr/bin/signaeos-display2 \
-            usr/bin/signaeos-ctl \
-            usr/bin/signaeos-update \
-            usr/share/signaeos/webui
-
+          tar -czf signaeos-files.tar.gz -C rootfs .
           ls -lh signaeos-files.tar.gz
 
-      - name: Copy files tarball into provision package
-        run: |
-          cp signaeos-files.tar.gz provision/signaeos-files.tar.gz
-
-      - name: Package provision bundle
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          cd provision
-          tar -czf "../signaeos-provision-v${VERSION}.tar.gz" \
-            signaeos-provision.sh \
-            signaeos-firstboot.service \
-            signaeos-files.tar.gz \
-            install.sh
-          echo "Provision bundle:"
-          ls -lh "../signaeos-provision-v${VERSION}.tar.gz"
-
       - name: Create release
-        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           name: SignageOS v${{ steps.ver.outputs.version }}
           body: |
             ## SignageOS v${{ steps.ver.outputs.version }}
 
-            **Dual display digital signage OS for Raspberry Pi and x86**
+            ### Install on Raspberry Pi OS Lite
 
-            ### Installation
+            SSH into your Pi and run:
 
-            **You need:** Raspberry Pi OS Lite (Bookworm) flashed to an SD card.
-
-            1. Flash **Raspberry Pi OS Lite** with [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-               - In Advanced Options (`Ctrl+Shift+X`): set hostname `signaeos`, enable SSH, set username `pi` password `signaeos`
-            2. Download and extract **`signaeos-provision-v${{ steps.ver.outputs.version }}.tar.gz`**
-            3. Run the installer (SD card must still be inserted):
-               ```bash
-               tar -xzf signaeos-provision-v${{ steps.ver.outputs.version }}.tar.gz
-               ./install.sh
-               ```
-            4. Eject SD card, insert into Pi, power on
-            5. Wait ~10-15 minutes for provisioning (first boot only)
-            6. Browse to **http://signaeos.local:3000**
-
-            ### Monitoring provisioning progress
             ```bash
-            ssh pi@signaeos.local
-            sudo journalctl -u signaeos-firstboot -f
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/v${{ steps.ver.outputs.version }}/install.sh | sudo bash
             ```
 
-            ### Features
-            - Display 1: Chromium/Firefox kiosk — switch URLs via Stream Deck
-            - Display 2: Native NDI viewer — switch sources via Stream Deck
-            - NDI Access Manager integration
-            - 802.1q VLAN trunk support
-            - Bitfocus Companion Satellite built-in (port 16622)
-            - OTA updates via `signaeos-update apply`
+            Or download and run manually:
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.ver.outputs.version }}/install.sh
+            sudo bash install.sh
+            ```
+
+            **Requires:** Raspberry Pi OS Lite (Bookworm) or Debian Bookworm x86_64
+
+            ### After install
+            Browse to **http://signaeos.local:3000**
+
+            ### Update existing install
+            ```bash
+            sudo signaeos-update apply
+            ```
           files: |
-            signaeos-provision-v${{ steps.ver.outputs.version }}.tar.gz
+            install.sh
             signaeos-files.tar.gz
           draft: false
           prerelease: false

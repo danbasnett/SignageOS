@@ -1,158 +1,61 @@
 # SignageOS
 
-Dual display digital signage OS. Display 1 shows web content (Chromium/Firefox kiosk), Display 2 shows NDI sources. Both controlled via Stream Deck through Bitfocus Companion Satellite.
+Dual display digital signage for Raspberry Pi. Display 1 shows web content, Display 2 shows NDI. Both controlled via Stream Deck through Bitfocus Companion Satellite.
 
-## Installation
+## Install
 
-### Step 1 — Flash Raspberry Pi OS Lite
-
-1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Choose OS → **Raspberry Pi OS Lite (64-bit)**
-3. Before writing, click the **settings cog** (or press `Ctrl+Shift+X`) and set:
-   - Hostname: `signaeos`
-   - Enable SSH: ✓
-   - Username: `pi`  Password: `signaeos`
-   - WiFi credentials (optional — ethernet recommended for first boot)
-4. Write to SD card
-
-### Step 2 — Install SignageOS
-
-Download the latest release from the [Releases page](../../releases):
+On a Raspberry Pi running **Raspberry Pi OS Lite (Bookworm)**:
 
 ```bash
-# Extract the provision bundle
-tar -xzf signaeos-provision-v*.tar.gz
-
-# Run the installer (SD card must be inserted in your Mac/PC)
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/danbasnett/SignageOS/main/install.sh | sudo bash
 ```
 
-Eject the SD card safely.
+Takes about 10–15 minutes. Then browse to **http://signaeos.local:3000**.
 
-### Step 3 — First boot
+## Requirements
 
-1. Insert SD card into Pi, connect ethernet, power on
-2. Wait **10–15 minutes** — provisioning installs everything automatically
-3. Browse to **http://signaeos.local:3000**
+- Raspberry Pi 4 or 5 (or x86_64)
+- Raspberry Pi OS Lite 64-bit (Bookworm)
+- Internet connection during install
+- HDMI display connected
 
-To watch provisioning progress:
-```bash
-ssh pi@signaeos.local   # password: signaeos
-sudo journalctl -u signaeos-firstboot -f
-```
+## Features
 
----
+- **Display 1** — Chromium or Firefox, fullscreen kiosk, switch URLs via Stream Deck
+- **Display 2** — Native NDI viewer, switch sources via Stream Deck  
+- **NDI Access Manager** — control source visibility from the web UI
+- **802.1q VLANs** — trunk port support, configure tagged VLANs from web UI
+- **Bitfocus Companion Satellite** — Stream Deck connects on port 16622
+- **OTA updates** — `sudo signaeos-update apply`
 
-## Setup UI
-
-Browse to `http://signaeos.local:3000` (or `http://<ip>:3000`).
-
-| Section | What you configure |
-|---|---|
-| Display 1 — Web | URLs to show, browser choice, device name |
-| Display 2 — NDI | NDI sources, switch between them |
-| NDI Access Manager | AM server IP, source visibility, receiver registration |
-| Network & VLANs | 802.1q trunk VLANs, WiFi, hostname |
-| Stream Deck | Companion server IP, Satellite port |
-| System | SSH keys, OTA updates, reboot |
-
----
-
-## Stream Deck / Companion
-
-Companion Satellite runs on port `16622`. In Bitfocus Companion:
-
-**Option A — HTTP actions (simplest):**
-
-| Button | POST to |
-|---|---|
-| Switch Display 1 to URL 0 | `http://signaeos.local:3000/api/display/1/switch/0` |
-| Switch Display 1 to URL 1 | `http://signaeos.local:3000/api/display/1/switch/1` |
-| NDI Source next | `http://signaeos.local:3000/api/display/2/next` |
-| NDI Source previous | `http://signaeos.local:3000/api/display/2/prev` |
-
-**Option B — Companion Satellite:**
-Add a Satellite connection pointing at `signaeos.local`, port `16622`.
-
----
-
-## SSH
+## After install
 
 ```bash
-ssh pi@signaeos.local
-# password: signaeos
+# Check everything is running
+sudo systemctl status signaeos-webui
+sudo systemctl status signaeos-display1
+
+# Live logs
+sudo journalctl -u signaeos-display1 -f
+
+# Control from command line
+signaeos-ctl d1 status
+signaeos-ctl d1 switch 1
+signaeos-ctl d2 source "ATEM MINI (192.168.1.50)"
+signaeos-ctl d2 discover
+
+# Update
+sudo signaeos-update check
+sudo signaeos-update apply
 ```
 
-Useful commands once in:
+## Companion / Stream Deck API
 
-```bash
-sudo systemctl status signaeos-webui       # web UI status
-sudo systemctl status signaeos-display1    # display 1 status
-sudo journalctl -u signaeos-display1 -f   # live logs
-signaeos-ctl d1 status                    # current URL on display 1
-signaeos-ctl d2 status                    # current NDI source on display 2
-signaeos-ctl d2 discover                  # scan for NDI sources on network
-signaeos-update check                     # check for updates
-signaeos-update apply                     # apply update (no reboot needed)
+```
+POST http://signaeos.local:3000/api/display/1/switch/0   switch display 1 to URL 0
+POST http://signaeos.local:3000/api/display/1/next        next URL
+POST http://signaeos.local:3000/api/display/2/next        next NDI source
+POST http://signaeos.local:3000/api/display/2/prev        prev NDI source
 ```
 
----
-
-## Dual display wiring
-
-- **Single device (Pi 5 / x86):** connect two HDMI cables, Weston manages both outputs automatically
-- **Two devices:** flash both with the same image; set Role to `web` on one and `ndi` on the other in the web UI
-
----
-
-## Config file
-
-`/data/signaeos/config.json` — written by the web UI, can be edited manually:
-
-```json
-{
-  "role": "both",
-  "display_name": "Lobby Screen",
-  "display1": {
-    "browser": "chromium",
-    "current_index": 0,
-    "urls": [
-      { "label": "Dashboard", "url": "https://grafana.local/d/abc" },
-      { "label": "Alerts",    "url": "https://grafana.local/d/xyz" }
-    ]
-  },
-  "display2": {
-    "current_source": "ATEM MINI (192.168.1.50)",
-    "sources": [
-      { "label": "ATEM",    "name": "ATEM MINI (192.168.1.50)" },
-      { "label": "Camera",  "name": "PTZ Camera 1 (192.168.1.51)" }
-    ]
-  },
-  "ndi": {
-    "access_manager_ip": "192.168.1.100",
-    "access_manager_port": 80,
-    "groups": ["public", "studio1"]
-  },
-  "network": {
-    "hostname": "lobby-screen",
-    "native_vlan": "1",
-    "vlans": [
-      { "id": 10, "ip": "10.10.10.5/24", "gateway": "10.10.10.1", "label": "AV VLAN" }
-    ],
-    "wifi_ssid": "",
-    "wifi_password": ""
-  }
-}
-```
-
----
-
-## Building from source
-
-The GitHub Actions workflow packages everything automatically on each tag push. No image build needed — the provision script installs onto standard Raspberry Pi OS Lite.
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-# Release appears at github.com/your-org/signaeos/releases
-```
+Or use Companion Satellite on port `16622`.

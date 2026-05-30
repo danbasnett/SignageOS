@@ -1,6 +1,7 @@
 [Unit]
 Description=Weston Wayland Compositor
 After=systemd-udevd.service
+Requires=systemd-udevd.service
 
 [Service]
 Type=notify
