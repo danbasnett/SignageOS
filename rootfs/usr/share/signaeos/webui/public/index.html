@@ -656,7 +656,11 @@ async function saveCompanion() {
   C.companion = { server_ip: document.getElementById('comp_ip').value,
                   server_port: parseInt(document.getElementById('comp_port').value)||16622 };
   const r = await api('POST', '/api/config', C);
-  r.ok ? toast('Companion saved!') : toast('Error: ' + r.error, 'err');
+  if (r.ok) {
+    toast('Companion server saved — connecting…');
+    // Refresh surfaces after a moment to show connection status
+    setTimeout(loadSurfaces, 2000);
+  } else toast('Error: ' + r.error, 'err');
 }
 async function saveSsh() {
   C.ssh = { authorized_keys: document.getElementById('ssh_keys').value };

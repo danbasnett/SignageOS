@@ -196,12 +196,29 @@ async function applyConfig(cfg) {
       err => err && console.warn('WiFi:', err.message));
   }
 
+  // Companion Satellite — call the real Satellite API
   if (cfg.companion?.server_ip) {
+    const host = cfg.companion.server_ip;
+    const port = cfg.companion.server_port || 16622;
+    // Write legacy config file as fallback
     fs.mkdirSync('/data/signaeos', { recursive: true });
     fs.writeFileSync('/data/signaeos/satellite.json',
-      JSON.stringify({ remoteIp: cfg.companion.server_ip,
-                       remotePort: cfg.companion.server_port || 16622 }, null, 2));
-    exec('systemctl restart companion-satellite 2>/dev/null || true', () => {});
+      JSON.stringify({ remoteIp: host, remotePort: port }, null, 2));
+    // Call the Satellite REST API to update the host live
+    const satHost = new Promise(resolve => {
+      const body = JSON.stringify({ host });
+      const opts = { hostname: '127.0.0.1', port: 9999, path: '/api/host',
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } };
+      const req = http.request(opts, res => { res.resume(); resolve(res.statusCode); });
+      req.on('error', () => resolve(null));
+      req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+      req.write(body); req.end();
+    });
+    await satHost;
+    // Also write to /boot/satellite-config which the Satellite service reads on restart
+    try {
+      fs.writeFileSync('/boot/satellite-config', `COMPANION_HOST=${host}\nCOMPANION_PORT=${port}\n`);
+    } catch {}
   }
 
   await d1({ cmd: 'reload' }).catch(() => {});
