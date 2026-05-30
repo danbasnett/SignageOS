@@ -1,0 +1,16 @@
+[Unit]
+Description=SignageOS First Boot Provisioning
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/boot/firmware/signaeos-provision.sh
+
+[Service]
+Type=oneshot
+ExecStart=/boot/firmware/signaeos-provision.sh
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

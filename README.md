@@ -1,133 +1,107 @@
 # SignageOS
 
-A minimal Debian-based digital signage OS. Boots to a fullscreen kiosk browser, controlled via Stream Deck through Bitfocus Companion Satellite. Configured via a web UI — no keyboard or monitor required.
+Dual display digital signage OS. Display 1 shows web content (Chromium/Firefox kiosk), Display 2 shows NDI sources. Both controlled via Stream Deck through Bitfocus Companion Satellite.
 
-## Features
+## Installation
 
-- **Debian Bookworm base** — real apt packages, proper GPU drivers, maintained browser security updates
-- **Chromium or Firefox** — user-selectable in the web UI, fullscreen kiosk mode
-- **Multi-URL switching** — define any number of URLs, switch between them instantly from a Stream Deck button
-- **Bitfocus Companion Satellite** — Stream Deck plugs into this box *or* into any PC running Companion
-- **First-boot web UI** — browse to `http://signaeos.local:3000` to configure everything
-- **Read-only rootfs** — squashfs root, writable `ext4` data partition with overlayfs; survives power cuts
-- **A/B OTA updates** — download to inactive slot, boot, auto-rollback on failure
-- **SSH access** — key-based only; add keys in the web UI
-- **WiFi + Ethernet** — NetworkManager, configurable from web UI with network scan
-- **Multi-arch** — same codebase builds for Raspberry Pi 4/5 (arm64) and x86_64
+### Step 1 — Flash Raspberry Pi OS Lite
+
+1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. Choose OS → **Raspberry Pi OS Lite (64-bit)**
+3. Before writing, click the **settings cog** (or press `Ctrl+Shift+X`) and set:
+   - Hostname: `signaeos`
+   - Enable SSH: ✓
+   - Username: `pi`  Password: `signaeos`
+   - WiFi credentials (optional — ethernet recommended for first boot)
+4. Write to SD card
+
+### Step 2 — Install SignageOS
+
+Download the latest release from the [Releases page](../../releases):
+
+```bash
+# Extract the provision bundle
+tar -xzf signaeos-provision-v*.tar.gz
+
+# Run the installer (SD card must be inserted in your Mac/PC)
+./install.sh
+```
+
+Eject the SD card safely.
+
+### Step 3 — First boot
+
+1. Insert SD card into Pi, connect ethernet, power on
+2. Wait **10–15 minutes** — provisioning installs everything automatically
+3. Browse to **http://signaeos.local:3000**
+
+To watch provisioning progress:
+```bash
+ssh pi@signaeos.local   # password: signaeos
+sudo journalctl -u signaeos-firstboot -f
+```
 
 ---
 
-## Build
+## Setup UI
 
-### Host requirements (Ubuntu 22.04 / 24.04 recommended)
+Browse to `http://signaeos.local:3000` (or `http://<ip>:3000`).
 
-```bash
-sudo apt-get install -y \
-  debootstrap qemu-user-static binfmt-support \
-  parted squashfs-tools dosfstools \
-  grub-efi-amd64-bin mtools \
-  curl wget git xz-utils
-```
-
-### Build
-
-```bash
-# Clone
-git clone https://github.com/your-org/signaeos
-cd signaeos
-
-# Raspberry Pi 4/5 image  (~20–30 min first time, cached debootstrap after)
-sudo ./scripts/build-image.sh rpi
-
-# x86_64 image
-sudo ./scripts/build-image.sh x86
-
-# Both
-sudo ./scripts/build-image.sh all
-```
-
-Outputs:
-- `output/rpi/images/signaeos-rpi.img.xz` — compressed RPi image
-- `output/x86/images/signaeos-x86.img` — x86 disk image
-
-The first build downloads and caches a Debian debootstrap tarball in `.cache/`. Subsequent builds reuse it, taking ~10 minutes instead of ~30.
+| Section | What you configure |
+|---|---|
+| Display 1 — Web | URLs to show, browser choice, device name |
+| Display 2 — NDI | NDI sources, switch between them |
+| NDI Access Manager | AM server IP, source visibility, receiver registration |
+| Network & VLANs | 802.1q trunk VLANs, WiFi, hostname |
+| Stream Deck | Companion server IP, Satellite port |
+| System | SSH keys, OTA updates, reboot |
 
 ---
 
-## Flash
+## Stream Deck / Companion
 
-### Raspberry Pi
+Companion Satellite runs on port `16622`. In Bitfocus Companion:
 
-```bash
-xzcat output/rpi/images/signaeos-rpi.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
-sync
-```
+**Option A — HTTP actions (simplest):**
 
-Replace `/dev/sdX` with your SD card or USB drive.
+| Button | POST to |
+|---|---|
+| Switch Display 1 to URL 0 | `http://signaeos.local:3000/api/display/1/switch/0` |
+| Switch Display 1 to URL 1 | `http://signaeos.local:3000/api/display/1/switch/1` |
+| NDI Source next | `http://signaeos.local:3000/api/display/2/next` |
+| NDI Source previous | `http://signaeos.local:3000/api/display/2/prev` |
 
-### x86 (USB stick or SSD)
-
-```bash
-sudo dd if=output/x86/images/signaeos-x86.img of=/dev/sdX bs=4M status=progress
-sync
-```
-
-Boot from the USB/SSD. Ensure UEFI boot is enabled in BIOS.
-
----
-
-## First Boot
-
-1. Connect the device to your network via ethernet
-2. Browse to **`http://signaeos.local:3000`** from any device on the same network
-   - If mDNS doesn't resolve, check your router's DHCP leases for the IP
-3. Configure:
-   - **Display**: name, browser choice
-   - **URLs**: add all the pages you want to display (label + URL)
-   - **Network**: WiFi credentials if needed, hostname
-   - **Stream Deck**: Companion server IP
-   - **System**: paste your SSH public key
-4. Click **Save** — the kiosk reloads immediately
-
----
-
-## Stream Deck Setup
-
-### Option A — HTTP actions (simplest)
-
-In Bitfocus Companion, add a **Generic HTTP** connection. For each URL:
-
-| Button | Action | URL |
-|--------|--------|-----|
-| Dashboard | POST | `http://signaeos.local:3000/api/switch/0` |
-| Alerts | POST | `http://signaeos.local:3000/api/switch/1` |
-| Welcome | POST | `http://signaeos.local:3000/api/switch/2` |
-
-### Option B — Companion Satellite
-
-1. In Companion → Connections → Add → search **Satellite**
-2. Enter this device's IP, port `16622`
-3. Plug Stream Deck into this device or into any PC running Companion
-
-### Direct API endpoints
-
-```
-POST /api/switch/:index   switch to URL by index (0-based)
-POST /api/next            next URL
-POST /api/prev            previous URL
-POST /api/reload          reload current URL
-GET  /api/status          current URL info
-```
+**Option B — Companion Satellite:**
+Add a Satellite connection pointing at `signaeos.local`, port `16622`.
 
 ---
 
 ## SSH
 
 ```bash
-ssh root@signaeos.local
+ssh pi@signaeos.local
+# password: signaeos
 ```
 
-Password auth is disabled. Add your public key in the web UI or drop a file at `/data/signaeos/authorized_keys`.
+Useful commands once in:
+
+```bash
+sudo systemctl status signaeos-webui       # web UI status
+sudo systemctl status signaeos-display1    # display 1 status
+sudo journalctl -u signaeos-display1 -f   # live logs
+signaeos-ctl d1 status                    # current URL on display 1
+signaeos-ctl d2 status                    # current NDI source on display 2
+signaeos-ctl d2 discover                  # scan for NDI sources on network
+signaeos-update check                     # check for updates
+signaeos-update apply                     # apply update (no reboot needed)
+```
+
+---
+
+## Dual display wiring
+
+- **Single device (Pi 5 / x86):** connect two HDMI cables, Weston manages both outputs automatically
+- **Two devices:** flash both with the same image; set Role to `web` on one and `ndi` on the other in the web UI
 
 ---
 
@@ -137,85 +111,48 @@ Password auth is disabled. Add your public key in the web UI or drop a file at `
 
 ```json
 {
+  "role": "both",
   "display_name": "Lobby Screen",
-  "browser": "chromium",
-  "current_url_index": 0,
-  "urls": [
-    { "label": "Dashboard", "url": "https://grafana.local/d/abc" },
-    { "label": "Alerts",    "url": "https://grafana.local/d/xyz" }
-  ],
-  "companion": {
-    "server_ip": "192.168.1.100",
-    "server_port": 16622
+  "display1": {
+    "browser": "chromium",
+    "current_index": 0,
+    "urls": [
+      { "label": "Dashboard", "url": "https://grafana.local/d/abc" },
+      { "label": "Alerts",    "url": "https://grafana.local/d/xyz" }
+    ]
+  },
+  "display2": {
+    "current_source": "ATEM MINI (192.168.1.50)",
+    "sources": [
+      { "label": "ATEM",    "name": "ATEM MINI (192.168.1.50)" },
+      { "label": "Camera",  "name": "PTZ Camera 1 (192.168.1.51)" }
+    ]
+  },
+  "ndi": {
+    "access_manager_ip": "192.168.1.100",
+    "access_manager_port": 80,
+    "groups": ["public", "studio1"]
   },
   "network": {
     "hostname": "lobby-screen",
-    "wifi_ssid": "MyWiFi",
-    "wifi_password": "secret"
-  },
-  "ssh": {
-    "authorized_keys": "ssh-ed25519 AAAA..."
+    "native_vlan": "1",
+    "vlans": [
+      { "id": 10, "ip": "10.10.10.5/24", "gateway": "10.10.10.1", "label": "AV VLAN" }
+    ],
+    "wifi_ssid": "",
+    "wifi_password": ""
   }
 }
 ```
 
 ---
 
-## Partition layout
+## Building from source
 
-```
-┌────────────────┬─────────────┬─────────────┬────────────────┐
-│  boot/EFI      │  rootfs-a   │  rootfs-b   │  data          │
-│  256 MiB FAT   │  768 MiB    │  768 MiB    │  rest of disk  │
-│  (kernel/grub) │  squashfs   │  squashfs   │  ext4 (grown   │
-│                │  (active)   │  (update)   │  on first boot)│
-└────────────────┴─────────────┴─────────────┴────────────────┘
-```
-
-- Root is always squashfs (read-only)
-- `/data` is ext4, writable, holds config + overlayfs layers
-- A/B: updates write to inactive slot, next boot switches to it
-
----
-
-## OTA Updates
+The GitHub Actions workflow packages everything automatically on each tag push. No image build needed — the provision script installs onto standard Raspberry Pi OS Lite.
 
 ```bash
-# Check for an update
-signaeos-update check
-
-# Apply (downloads to inactive slot)
-signaeos-update apply
-
-# Rollback to previous slot
-signaeos-update rollback
-```
-
-Set `SIGNAEOS_UPDATE_SERVER=https://your-server` in `/etc/environment` to enable auto-checks. See `docs/update-server.md` for running your own update server.
-
----
-
-## Logs
-
-```bash
-journalctl -u signaeos-init      -f   # kiosk / browser
-journalctl -u signaeos-webui     -f   # web UI
-journalctl -u companion-satellite -f  # Stream Deck satellite
-journalctl -u weston              -f  # compositor
-
-# Or from the build host after SSH:
-ssh root@signaeos.local journalctl -u signaeos-init -n 50
-```
-
----
-
-## Useful commands (on device)
-
-```bash
-signaeos-ctl status          # what's currently showing
-signaeos-ctl switch 2        # switch to URL index 2
-signaeos-ctl next            # next URL
-signaeos-ctl prev            # previous URL
-signaeos-ctl reload          # reload current URL
-signaeos-update status       # A/B slot info
+git tag v1.0.0
+git push origin v1.0.0
+# Release appears at github.com/your-org/signaeos/releases
 ```

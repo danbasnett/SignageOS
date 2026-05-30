@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# signaeos-display1 — Chromium/Firefox kiosk on HDMI-1
+set -euo pipefail
+
+CONFIG="/data/signaeos/config.json"
+SOCKET="/run/signaeos/display1.sock"
+BROWSER_PID=""
+
+log()  { logger -t "signaeos-display1" -- "$*"; echo "[$(date '+%H:%M:%S')] [d1] $*"; }
+warn() { logger -t "signaeos-display1" -- "WARN: $*"; }
+cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
+cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+
+ensure_config() {
+  mkdir -p /data/signaeos
+  [[ -f "$CONFIG" ]] && return
+  cat > "$CONFIG" <<'JSON'
+{
+  "role": "both",
+  "display_name": "SignageOS",
+  "display1": {
+    "browser": "chromium",
+    "current_index": 0,
+    "urls": [{ "label": "Setup", "url": "http://localhost:3000" }]
+  },
+  "display2": { "current_source": "", "sources": [] },
+  "ndi": { "access_manager_ip": "", "access_manager_port": 80, "groups": [] },
+  "companion": { "server_ip": "", "server_port": 16622 },
+  "network": { "hostname": "signaeos", "native_vlan": "", "vlans": [], "wifi_ssid": "", "wifi_password": "" },
+  "ssh": { "authorized_keys": "" }
+}
+JSON
+}
+
+apply_settings() {
+  local h; h=$(cfg '.network.hostname' "signaeos")
+  echo "$h" > /etc/hostname; hostname "$h" 2>/dev/null || true
+  local keys; keys=$(cfg '.ssh.authorized_keys' "")
+  if [[ -n "$keys" ]]; then
+    mkdir -p /root/.ssh
+    echo "$keys" > /root/.ssh/authorized_keys
+    chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys
+  fi
+}
+
+apply_vlans() {
+  local count; count=$(jq '.network.vlans | length' "$CONFIG" 2>/dev/null || echo 0)
+  (( count == 0 )) && return
+  modprobe 8021q 2>/dev/null || true
+  local iface; iface=$(ip -o link show | awk -F': ' '$2 ~ /^eth|^en/ {print $2; exit}')
+  [[ -z "$iface" ]] && return
+  jq -c '.network.vlans[]' "$CONFIG" 2>/dev/null | while read -r vlan; do
+    local id ip gw
+    id=$(echo "$vlan" | jq -r '.id')
+    ip=$(echo "$vlan" | jq -r '.ip // ""')
+    gw=$(echo "$vlan" | jq -r '.gateway // ""')
+    local vif="${iface}.${id}"
+    nmcli con show "$vif" &>/dev/null 2>&1 || \
+      nmcli con add type vlan con-name "$vif" dev "$iface" id "$id" \
+        ${ip:+ipv4.method manual ipv4.addresses "$ip"} \
+        ${gw:+ipv4.gateway "$gw"} \
+        ipv6.method ignore 2>/dev/null || true
+    nmcli con up "$vif" 2>/dev/null || true
+  done
+}
+
+wait_display() {
+  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-0
+  local n=60
+  while (( n-- > 0 )); do
+    [[ -S "/run/user/0/wayland-0" ]] && { log "Wayland ready"; return; }
+    sleep 1
+  done
+  warn "Wayland not ready after 60s — attempting anyway"
+}
+
+current_url() {
+  local idx; idx=$(cfg '.display1.current_index' "0")
+  cfg ".display1.urls[$idx].url" "http://localhost:3000"
+}
+
+launch_browser() {
+  local url="$1"
+  local browser; browser=$(cfg '.display1.browser' "chromium")
+  if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
+    kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
+  fi
+  log "Launching $browser → $url"
+  local flags=(--kiosk --no-sandbox --noerrdialogs --disable-infobars
+    --disable-session-crashed-bubble --no-first-run --disable-pinch
+    --autoplay-policy=no-user-gesture-required --disable-background-networking
+    --disable-sync --no-default-browser-check --password-store=basic
+    --user-data-dir=/data/chromium-profile --ozone-platform=wayland
+    --disable-features=TranslateUI,OverscrollHistoryNavigation)
+  case "$browser" in
+    chromium*)
+      WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
+      chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
+      chromium "${flags[@]}" "$url" &
+      ;;
+    firefox*)
+      mkdir -p /data/firefox-profile
+      [[ ! -f /data/firefox-profile/user.js ]] && cat > /data/firefox-profile/user.js <<'P'
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+P
+      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
+      firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
+      ;;
+  esac
+  BROWSER_PID=$!
+  log "Browser PID: $BROWSER_PID"
+}
+
+switch_url() {
+  local idx="$1"
+  local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+  (( idx < 0 || idx >= total )) && echo '{"ok":false,"error":"index out of range"}' && return
+  cfg_set '.display1.current_index' "$idx"
+  launch_browser "$(cfg ".display1.urls[$idx].url" "http://localhost:3000")"
+  echo '{"ok":true}'
+}
+
+handle_command() {
+  local line; read -r -t 10 line || { echo '{"ok":false,"error":"timeout"}'; return; }
+  local cmd cur total
+  cmd=$(echo "$line" | jq -r '.cmd' 2>/dev/null || echo "")
+  case "$cmd" in
+    switch) switch_url "$(echo "$line" | jq -r '.index // 0')" ;;
+    next)
+      cur=$(cfg '.display1.current_index' "0")
+      total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      switch_url $(( (cur + 1) % total )) ;;
+    prev)
+      cur=$(cfg '.display1.current_index' "0")
+      total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      switch_url $(( (cur - 1 + total) % total )) ;;
+    reload) launch_browser "$(current_url)"; echo '{"ok":true}' ;;
+    status)
+      local idx; idx=$(cfg '.display1.current_index' "0")
+      total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      echo "{\"ok\":true,\"display\":1,\"index\":$idx,\"label\":\"$(cfg ".display1.urls[$idx].label" "")\",\"url\":\"$(cfg ".display1.urls[$idx].url" "")\",\"total\":$total}" ;;
+    *) echo '{"ok":false,"error":"unknown command"}' ;;
+  esac
+}
+
+[[ "${1:-}" == "--handle-command" ]] && { handle_command; exit 0; }
+
+log "Display 1 starting"
+ensure_config
+apply_settings
+apply_vlans
+wait_display
+mkdir -p /run/signaeos
+rm -f "$SOCKET"
+while true; do socat UNIX-LISTEN:"$SOCKET",fork EXEC:"$0 --handle-command" 2>/dev/null || sleep 2; done &
+
+role=$(cfg '.role' "both")
+if [[ "$role" == "ndi" ]]; then log "Role=ndi, display1 inactive"; sleep infinity; fi
+
+launch_browser "$(current_url)"
+while true; do
+  sleep 15
+  if [[ -n "$BROWSER_PID" ]] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
+    warn "Browser died — restarting"; BROWSER_PID=""; sleep 2; launch_browser "$(current_url)"
+  fi
+done

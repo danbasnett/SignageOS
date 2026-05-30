@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# signaeos-ctl — control both displays from the command line
+D1="/run/signaeos/display1.sock"
+D2="/run/signaeos/display2.sock"
+die() { echo "Error: $*" >&2; exit 1; }
+send() { local s="$1" p="$2"; [[ ! -S "$s" ]] && die "Socket $s not found"; echo "$p" | socat - "UNIX-CONNECT:$s"; echo; }
+
+case "${1:-}" in
+  d1)
+    shift; case "${1:-status}" in
+      status)      send "$D1" '{"cmd":"status"}' ;;
+      next)        send "$D1" '{"cmd":"next"}' ;;
+      prev)        send "$D1" '{"cmd":"prev"}' ;;
+      reload)      send "$D1" '{"cmd":"reload"}' ;;
+      switch)      send "$D1" "{\"cmd\":\"switch\",\"index\":${2:?index required}}" ;;
+      *) die "Unknown d1 command" ;;
+    esac ;;
+  d2)
+    shift; case "${1:-status}" in
+      status)      send "$D2" '{"cmd":"status"}' ;;
+      next)        send "$D2" '{"cmd":"next"}' ;;
+      prev)        send "$D2" '{"cmd":"prev"}' ;;
+      discover)    send "$D2" '{"cmd":"discover"}' ;;
+      source)      send "$D2" "{\"cmd\":\"source\",\"source\":\"${2:?source required}\"}" ;;
+      am)
+        shift; case "${1:-}" in
+          sources)    send "$D2" '{"cmd":"am_sources"}' ;;
+          groups)     send "$D2" '{"cmd":"am_groups"}' ;;
+          receivers)  send "$D2" '{"cmd":"am_receivers"}' ;;
+          register)   send "$D2" '{"cmd":"am_register"}' ;;
+          show)       send "$D2" "{\"cmd\":\"am_set_visibility\",\"source_id\":\"${2:?id required}\",\"visible\":true}" ;;
+          hide)       send "$D2" "{\"cmd\":\"am_set_visibility\",\"source_id\":\"${2:?id required}\",\"visible\":false}" ;;
+          *) die "Unknown am subcommand" ;;
+        esac ;;
+      *) die "Unknown d2 command" ;;
+    esac ;;
+  *)
+    echo "Usage: signaeos-ctl <d1|d2> <command>"
+    echo "  d1: status | switch <n> | next | prev | reload"
+    echo "  d2: status | source <name> | next | prev | discover"
+    echo "  d2: am sources | am groups | am receivers | am register | am show/hide <id>"
+    ;;
+esac

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# signaeos-update — OTA update via GitHub releases
+set -euo pipefail
+
+GITHUB_REPO="@@GITHUB_REPO@@"
+VERSION_FILE="/etc/signaeos-version"
+
+current_version() { cat "$VERSION_FILE" 2>/dev/null || echo "unknown"; }
+
+cmd_status() {
+  echo "SignageOS Update Status"
+  echo "  Version : $(current_version)"
+  echo "  Repo    : $GITHUB_REPO"
+}
+
+cmd_check() {
+  local cur; cur=$(current_version)
+  echo "Checking for updates (current: $cur)..."
+  local latest
+  latest=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+    | jq -r '.tag_name' | tr -d 'v') || { echo "Could not reach GitHub."; return; }
+  if [[ "$latest" == "$cur" ]]; then
+    echo "Already up to date ($cur)."
+  else
+    echo "Update available: $cur → $latest"
+    echo "Run: signaeos-update apply"
+    echo "update_available=$latest"
+  fi
+}
+
+cmd_apply() {
+  local cur; cur=$(current_version)
+  local latest
+  latest=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+    | jq -r '.tag_name' | tr -d 'v')
+  [[ "$latest" == "$cur" ]] && echo "Already up to date." && return
+  echo "Updating to $latest..."
+  local url="https://github.com/${GITHUB_REPO}/releases/download/v${latest}/signaeos-files.tar.gz"
+  curl -fsSL "$url" | tar -xzf - -C /
+  cd /usr/share/signaeos/webui && npm install --production --no-audit --no-fund
+  echo "$latest" > "$VERSION_FILE"
+  systemctl daemon-reload
+  systemctl restart signaeos-webui signaeos-display1 signaeos-display2 companion-satellite
+  echo "Updated to $latest — no reboot needed."
+}
+
+case "${1:-status}" in
+  status) cmd_status ;;
+  check)  cmd_check ;;
+  apply)  cmd_apply ;;
+  *) echo "Usage: signaeos-update [status|check|apply]"; exit 1 ;;
+esac
