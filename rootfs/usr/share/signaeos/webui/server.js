@@ -364,6 +364,27 @@ app.post('/api/network/vlans', (req, res) => {
   });
 });
 
+// ── Companion Satellite proxy ──────────────────────────────────────────────
+// Proxy to local Satellite API to avoid CORS issues from the browser
+function satelliteRequest(path) {
+  return new Promise(resolve => {
+    const opts = { hostname: '127.0.0.1', port: 9999, path, method: 'GET',
+      headers: { Accept: 'application/json' } };
+    const req = http.request(opts, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => { try { resolve({ ok: true, data: JSON.parse(data), status: res.statusCode }); }
+                            catch { resolve({ ok: true, data: { raw: data }, status: res.statusCode }); } });
+    });
+    req.on('error', e => resolve({ ok: false, error: e.message }));
+    req.setTimeout(3000, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.end();
+  });
+}
+
+app.get('/api/satellite/status',   async (req, res) => res.json(await satelliteRequest('/api/status')));
+app.get('/api/satellite/surfaces', async (req, res) => res.json(await satelliteRequest('/api/surfaces')));
+
 // ── System ─────────────────────────────────────────────────────────────────
 app.get('/api/system', (req, res) => {
   try {

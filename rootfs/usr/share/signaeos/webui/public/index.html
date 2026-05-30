@@ -252,6 +252,13 @@ pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;backg
 <section class="sec" id="s-stream">
   <h2>Stream Deck / Companion</h2>
   <p class="sub">Connect to Bitfocus Companion. Both displays are independently controllable.</p>
+
+  <!-- Connected surfaces -->
+  <div class="card">
+    <h3>Connected Surfaces &nbsp;<button class="btn ghost sm" onclick="loadSurfaces()">Refresh</button></h3>
+    <div id="surfaces-list"><span style="font-size:12px;color:var(--m)">Click Refresh to check…</span></div>
+  </div>
+
   <div class="card"><h3>Companion Server</h3>
     <div class="row2">
       <div class="field"><label>Server IP</label><input id="comp_ip" type="text" placeholder="192.168.1.100"></div>
@@ -320,6 +327,7 @@ function go(el) {
   document.getElementById('s-' + el.dataset.s).classList.add('on');
   if (el.dataset.s === 'system') loadSystem();
   if (el.dataset.s === 'ndi-am') { renderNdiDevices(); renderManualSources(); }
+  if (el.dataset.s === 'stream') loadSurfaces();
 }
 
 function toast(msg, type='ok') {
@@ -656,7 +664,67 @@ async function saveSsh() {
   r.ok ? toast('SSH keys saved!') : toast('Error: ' + r.error, 'err');
 }
 
-// ── WiFi scan ──────────────────────────────────────────────────────────────
+// ── Connected Surfaces ────────────────────────────────────────────────────
+async function loadSurfaces() {
+  const el = document.getElementById('surfaces-list');
+  el.innerHTML = '<span style="font-size:12px;color:var(--m)">Checking…</span>';
+
+  const [statusRes, surfacesRes] = await Promise.all([
+    api('GET', '/api/satellite/status'),
+    api('GET', '/api/satellite/surfaces')
+  ]);
+
+  el.innerHTML = '';
+
+  // Connection status to Companion server
+  const status = statusRes?.data || statusRes;
+  if (status && !status.error) {
+    const connected = status.companion?.connected ?? status.connected ?? false;
+    const dot = connected ? 'var(--g)' : 'var(--r)';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:var(--m);margin-bottom:12px';
+    row.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0"></span>
+      Companion server: <strong style="color:var(--t)">${connected ? 'Connected' : 'Not connected'}</strong>`;
+    el.appendChild(row);
+  }
+
+  // Surface list
+  const surfaceData = surfacesRes?.data || surfacesRes;
+  const surfaces = surfaceData?.surfaces || surfaceData?.data || (Array.isArray(surfaceData) ? surfaceData : null);
+
+  if (surfaces && surfaces.length) {
+    surfaces.forEach(s => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--s2);border:1px solid var(--b);border-radius:var(--rr);margin-bottom:7px';
+      const type = s.type || s.deviceType || 'Surface';
+      const id   = s.id   || s.serialNumber || s.deviceId || '';
+      const keys = s.keysTotal || s.keyCount || '';
+      row.innerHTML = `
+        <span style="font-size:18px">${getSurfaceIcon(type)}</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${esc(type)}</div>
+          <div style="font-size:11px;color:var(--m)">${id ? esc(id) : ''}${keys ? ` · ${keys} keys` : ''}</div>
+        </div>
+        <span style="font-size:11px;background:rgba(63,185,80,.15);color:var(--g);padding:2px 8px;border-radius:10px">Connected</span>`;
+      el.appendChild(row);
+    });
+  } else if (surfacesRes?.ok === false || surfaceData?.error) {
+    el.innerHTML += `<div style="font-size:12px;color:var(--m);padding:4px 0">
+      Satellite not responding — check it's running:<br>
+      <code>sudo systemctl status satellite</code></div>`;
+  } else {
+    el.innerHTML += '<div style="font-size:12px;color:var(--m);padding:4px 0">No surfaces connected. Plug in a Stream Deck or connect via Companion on your PC.</div>';
+  }
+}
+
+function getSurfaceIcon(type) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('streamdeck') || t.includes('stream_deck') || t.includes('elgato')) return '🎛️';
+  if (t.includes('loupedeck')) return '🎚️';
+  if (t.includes('contour'))   return '🖱️';
+  if (t.includes('xkeys'))     return '⌨️';
+  return '🔌';
+}
 async function scanWifi() {
   const el = document.getElementById('ssid-list');
   el.innerHTML = '<span style="font-size:11px;color:var(--m)">Scanning…</span>';
