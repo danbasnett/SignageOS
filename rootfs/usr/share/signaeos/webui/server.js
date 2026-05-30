@@ -73,10 +73,51 @@ function sendSocket(sockPath, cmd) {
 const d1 = cmd => sendSocket(D1_SOCK, cmd);
 const d2 = cmd => sendSocket(D2_SOCK, cmd);
 
-// ── NDI local discovery via ndi-find ───────────────────────────────────────
-// With extra_ips set in /etc/ndi/ndi-config.v1.json, this also queries
-// those IPs directly — crossing subnets without multicast.
-function discoverNdi() {
+// ── NDI direct device query via TCP port 5960 ─────────────────────────────
+// NDI devices respond with XML listing their streams.
+// BirdDog format: <ndi><services><service name="X" port="N">...
+function queryNdiDevice(ip) {
+  return new Promise(resolve => {
+    const sock = new net.Socket();
+    let buf = '';
+    let timer;
+
+    const done = () => {
+      clearTimeout(timer);
+      sock.destroy();
+
+      // Parse XML response
+      const sources = [];
+      // Match all service name attributes
+      const re = /<service\s+name="([^"]+)"/g;
+      let m;
+      while ((m = re.exec(buf)) !== null) {
+        const name = m[1].trim();
+        if (name) sources.push({ label: name, name, ip, source: 'device' });
+      }
+      resolve(sources);
+    };
+
+    timer = setTimeout(done, 4000);
+
+    sock.connect(5960, ip, () => {
+      // Send NDI discovery request
+      sock.write('<ndi_discovery_request />\n');
+    });
+
+    sock.on('data', chunk => {
+      buf += chunk.toString();
+      // Response ends with </ndi> — parse as soon as we have it
+      if (buf.includes('</ndi>')) done();
+    });
+
+    sock.on('error', () => resolve([]));
+    sock.on('close', () => done());
+  });
+}
+
+// ── NDI multicast discovery via ndi-find tool (SDK, if installed) ──────────
+function discoverNdiLocal() {
   return new Promise(resolve => {
     const tools = [
       '/usr/local/bin/ndi-discover',
@@ -93,7 +134,7 @@ function discoverNdi() {
           const sources = stdout.split('\n')
             .map(l => l.trim())
             .filter(l => l.length > 0 && !l.startsWith('#'))
-            .map(name => ({ label: name, name, source: 'discovered' }));
+            .map(name => ({ label: name, name, source: 'local' }));
           return resolve(sources);
         }
         tryTool();
@@ -108,8 +149,13 @@ async function getAllNdiSources() {
   const cfg = readConfig();
   const ndi = cfg.ndi || {};
 
-  // Run local discovery (picks up extra_ips from NDI config automatically)
-  const discovered = await discoverNdi();
+  // Query all configured device IPs directly via TCP 5960
+  const deviceIps = (ndi.devices || []).map(d => d.ip).filter(Boolean);
+  const deviceResults = await Promise.all(deviceIps.map(ip => queryNdiDevice(ip)));
+  const fromDevices = deviceResults.flat();
+
+  // Try local multicast discovery too (works if NDI SDK is installed)
+  const fromLocal = await discoverNdiLocal();
 
   // Manual sources always included
   const manual = (ndi.manual_sources || []).map(s => ({
@@ -119,9 +165,9 @@ async function getAllNdiSources() {
     source: 'manual'
   }));
 
-  // Deduplicate by name
+  // Merge and deduplicate by name
   const seen = new Set();
-  return [...discovered, ...manual].filter(s => {
+  return [...fromDevices, ...fromLocal, ...manual].filter(s => {
     if (!s.name || seen.has(s.name)) return false;
     seen.add(s.name); return true;
   });
