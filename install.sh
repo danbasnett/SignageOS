@@ -106,50 +106,17 @@ info "Node.js $(node --version) installed"
 # ── Companion Satellite ───────────────────────────────────────────────────────
 step "Installing Companion Satellite"
 
-SAT_RELEASE=$(curl -fsSL "https://api.github.com/repos/bitfocus/companion-satellite/releases/latest" 2>/dev/null || true)
-SAT_TAG=$(echo "$SAT_RELEASE" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/' || true)
+# Use the official Companion Satellite install script
+# This creates a 'satellite' user and systemd service automatically
+SATELLITE_INSTALL_URL="https://raw.githubusercontent.com/bitfocus/companion-satellite/main/install.sh"
 
-if [ -z "$SAT_TAG" ]; then
-  warn "Could not fetch Companion Satellite release info — skipping"
+if curl -fsSL "$SATELLITE_INSTALL_URL" -o /tmp/satellite-install.sh 2>/dev/null; then
+  bash /tmp/satellite-install.sh
+  rm -f /tmp/satellite-install.sh
+  info "Companion Satellite installed via official script"
 else
-  info "Latest Companion Satellite: $SAT_TAG"
-
-  # Find asset URL matching our platform from the release asset list
-  SAT_URL=$(echo "$SAT_RELEASE" | grep '"browser_download_url"' | grep "$PLATFORM" | grep '\.tar\.gz' | head -1 | sed 's/.*"browser_download_url": *"\(.*\)".*/\1/' || true)
-
-  # If not found in API response, try known URL patterns
-  if [ -z "$SAT_URL" ]; then
-    SAT_VER=$(echo "$SAT_TAG" | tr -d 'v')
-    for pattern in \
-      "companion-satellite-${PLATFORM}.tar.gz" \
-      "satellite-${PLATFORM}.tar.gz" \
-      "companion-satellite_${SAT_VER}_${PLATFORM}.tar.gz" \
-      "companion-satellite-${SAT_VER}-${PLATFORM}.tar.gz"; do
-      CANDIDATE="https://github.com/bitfocus/companion-satellite/releases/download/${SAT_TAG}/${pattern}"
-      HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" -L "$CANDIDATE" 2>/dev/null || echo "000")
-      if [ "$HTTP_CODE" = "200" ]; then
-        SAT_URL="$CANDIDATE"
-        info "Found asset: $pattern"
-        break
-      fi
-    done
-  fi
-
-  if [ -z "$SAT_URL" ]; then
-    warn "Could not determine Companion Satellite download URL for $PLATFORM"
-    warn "All available assets:"
-    echo "$SAT_RELEASE" | grep '"browser_download_url"' | sed 's/.*"browser_download_url": *"\(.*\)".*/  \1/'
-    warn "Install manually from: https://github.com/bitfocus/companion-satellite/releases"
-  else
-    info "Downloading: $SAT_URL"
-    mkdir -p /opt/companion-satellite
-    TMP_SAT=$(mktemp -d)
-    curl -fsSL -L "$SAT_URL" -o "$TMP_SAT/satellite.tar.gz"
-    tar -xzf "$TMP_SAT/satellite.tar.gz" -C /opt/companion-satellite --strip-components=1 2>/dev/null || \
-    tar -xzf "$TMP_SAT/satellite.tar.gz" -C /opt/companion-satellite
-    rm -rf "$TMP_SAT"
-    info "Companion Satellite $SAT_TAG installed"
-  fi
+  warn "Could not download Companion Satellite install script"
+  warn "Install manually: curl https://raw.githubusercontent.com/bitfocus/companion-satellite/main/install.sh | bash"
 fi
 
 # ── NDI SDK ───────────────────────────────────────────────────────────────────
