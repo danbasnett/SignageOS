@@ -8,6 +8,7 @@ const { exec, execSync } = require('child_process');
 
 const PORT        = 3000;
 const CONFIG_FILE = process.env.SIGNAEOS_CONFIG || '/data/signaeos/config.json';
+const NDI_CONFIG  = '/etc/ndi/ndi-config.v1.json';
 const D1_SOCK     = '/run/signaeos/display1.sock';
 const D2_SOCK     = '/run/signaeos/display2.sock';
 
@@ -18,13 +19,12 @@ const DEFAULT_CONFIG = {
     urls: [{ label: 'Setup', url: 'http://localhost:3000' }] },
   display2: { current_source: '', sources: [] },
   ndi: {
-    // Multiple AM servers: [{ip, port, label}]
-    access_managers: [],
-    // Manual sources: [{label, name, ip}]
-    manual_sources: [],
-    // Legacy single AM (kept for compatibility)
-    access_manager_ip: '',
-    access_manager_port: 80
+    // NDI devices to query directly (extra_ips) - [{ip, label}]
+    devices: [],
+    // NDI Discovery Server IP (optional)
+    discovery_server: '',
+    // Manual sources - [{label, name, ip}]
+    manual_sources: []
   },
   companion: { server_ip: '', server_port: 16622 },
   network: { hostname: 'signaeos', native_vlan: '', vlans: [], wifi_ssid: '', wifi_password: '' },
@@ -35,14 +35,6 @@ const DEFAULT_CONFIG = {
 function readConfig() {
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-    // Migrate legacy single AM to array format
-    if (raw.ndi && raw.ndi.access_manager_ip && !raw.ndi.access_managers) {
-      raw.ndi.access_managers = [{
-        ip: raw.ndi.access_manager_ip,
-        port: raw.ndi.access_manager_port || 80,
-        label: 'Access Manager'
-      }];
-    }
     return Object.assign({}, DEFAULT_CONFIG, raw,
       { ndi: Object.assign({}, DEFAULT_CONFIG.ndi, raw.ndi || {}) });
   } catch { return Object.assign({}, DEFAULT_CONFIG); }
@@ -50,6 +42,21 @@ function readConfig() {
 function writeConfig(cfg) {
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+}
+
+// ── Write NDI SDK config file ──────────────────────────────────────────────
+// This tells the NDI SDK which IPs to query directly (extra_ips) and
+// optionally which discovery server to use. Takes effect immediately for
+// any NDI tool or ndiplay that reads this file.
+function writeNdiConfig(cfg) {
+  const ndi = cfg.ndi || {};
+  const deviceIps = (ndi.devices || []).map(d => d.ip).filter(Boolean).join(',');
+  const ndiCfg = { ndi: { networks: {} } };
+  if (deviceIps)               ndiCfg.ndi.networks.extra_ips  = deviceIps;
+  if (ndi.discovery_server)    ndiCfg.ndi.networks.discovery  = ndi.discovery_server;
+  fs.mkdirSync('/etc/ndi', { recursive: true });
+  fs.writeFileSync(NDI_CONFIG, JSON.stringify(ndiCfg, null, 2));
+  console.log('NDI config written:', JSON.stringify(ndiCfg.ndi.networks));
 }
 
 // ── Socket ─────────────────────────────────────────────────────────────────
@@ -66,87 +73,43 @@ function sendSocket(sockPath, cmd) {
 const d1 = cmd => sendSocket(D1_SOCK, cmd);
 const d2 = cmd => sendSocket(D2_SOCK, cmd);
 
-// ── NDI: fetch sources from one AM server ──────────────────────────────────
-function fetchAmSources(ip, port) {
+// ── NDI local discovery via ndi-find ───────────────────────────────────────
+// With extra_ips set in /etc/ndi/ndi-config.v1.json, this also queries
+// those IPs directly — crossing subnets without multicast.
+function discoverNdi() {
   return new Promise(resolve => {
-    // Try multiple common API paths
-    const paths = ['/v1/sources', '/api/v1/sources', '/sources', '/api/sources'];
-    let idx = 0;
-    const tryNext = () => {
-      if (idx >= paths.length) return resolve([]);
-      const apiPath = paths[idx++];
-      const opts = { hostname: ip, port: port || 80, path: apiPath, method: 'GET',
-        headers: { Accept: 'application/json' } };
-      const req = http.request(opts, res => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          if (res.statusCode !== 200) return tryNext();
-          try {
-            const parsed = JSON.parse(data);
-            // Normalise to [{label, name, ip, source}]
-            const arr = Array.isArray(parsed) ? parsed : (parsed.sources || parsed.data || []);
-            const sources = arr.map(s => ({
-              label: s.name || s.sourceName || s.label || `${ip}`,
-              name:  s.name || s.sourceName || '',
-              ip:    s.ip   || s.address    || ip,
-              source: 'am',
-              am_ip: ip
-            }));
-            resolve(sources);
-          } catch { tryNext(); }
-        });
-      });
-      req.on('error', () => tryNext());
-      req.setTimeout(3000, () => { req.destroy(); tryNext(); });
-      req.end();
-    };
-    tryNext();
-  });
-}
-
-// ── NDI: local multicast discovery via ndi-find tool ──────────────────────
-function discoverLocalNdi() {
-  return new Promise(resolve => {
-    // Try various NDI tool names
     const tools = [
-      'ndi-discover', 'NDI_Find', '/usr/local/bin/ndi-discover',
-      '/usr/local/bin/NDI_Find', '/opt/ndi/bin/ndi-discover'
+      '/usr/local/bin/ndi-discover',
+      '/usr/local/bin/NDI_Find',
+      'ndi-discover',
+      'NDI_Find'
     ];
     let tried = 0;
-    const tryTool = (tool) => {
-      exec(`timeout 4 ${tool} 2>/dev/null`, (err, stdout) => {
+    const tryTool = () => {
+      if (tried >= tools.length) return resolve([]);
+      const tool = tools[tried++];
+      exec(`timeout 5 ${tool} 2>/dev/null`, (err, stdout) => {
         if (!err && stdout.trim()) {
           const sources = stdout.split('\n')
-            .filter(l => l.includes('(') || l.toLowerCase().includes('source'))
             .map(l => l.trim())
-            .filter(Boolean)
-            .map(name => ({ label: name, name, ip: '', source: 'local' }));
+            .filter(l => l.length > 0 && !l.startsWith('#'))
+            .map(name => ({ label: name, name, source: 'discovered' }));
           return resolve(sources);
         }
-        tried++;
-        if (tried < tools.length) return tryTool(tools[tried]);
-        // ndi-find not available — return empty, not an error
-        resolve([]);
+        tryTool();
       });
     };
-    tryTool(tools[0]);
+    tryTool();
   });
 }
 
-// ── NDI: get all sources from all configured sources ──────────────────────
+// ── Get all NDI sources ────────────────────────────────────────────────────
 async function getAllNdiSources() {
   const cfg = readConfig();
   const ndi = cfg.ndi || {};
 
-  const results = await Promise.allSettled([
-    // Local discovery
-    discoverLocalNdi(),
-    // All configured AM servers
-    ...(ndi.access_managers || []).map(am => fetchAmSources(am.ip, am.port))
-  ]);
-
-  const discovered = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+  // Run local discovery (picks up extra_ips from NDI config automatically)
+  const discovered = await discoverNdi();
 
   // Manual sources always included
   const manual = (ndi.manual_sources || []).map(s => ({
@@ -156,22 +119,22 @@ async function getAllNdiSources() {
     source: 'manual'
   }));
 
-  // Merge — deduplicate by name
+  // Deduplicate by name
   const seen = new Set();
-  const all = [...discovered, ...manual].filter(s => {
+  return [...discovered, ...manual].filter(s => {
     if (!s.name || seen.has(s.name)) return false;
-    seen.add(s.name);
-    return true;
+    seen.add(s.name); return true;
   });
-
-  return all;
 }
 
 // ── Apply config ───────────────────────────────────────────────────────────
 async function applyConfig(cfg) {
   writeConfig(cfg);
+  writeNdiConfig(cfg);
+
   try { fs.writeFileSync('/etc/hostname', cfg.network.hostname + '\n');
         execSync(`hostname '${cfg.network.hostname}'`); } catch {}
+
   if (cfg.ssh?.authorized_keys) {
     try {
       fs.mkdirSync('/root/.ssh', { recursive: true });
@@ -180,11 +143,13 @@ async function applyConfig(cfg) {
       fs.chmodSync('/root/.ssh/authorized_keys', 0o600);
     } catch {}
   }
+
   if (cfg.network?.wifi_ssid && cfg.network?.wifi_password &&
       !cfg.network.wifi_password.includes('•')) {
     exec(`nmcli device wifi connect '${cfg.network.wifi_ssid}' password '${cfg.network.wifi_password}'`,
       err => err && console.warn('WiFi:', err.message));
   }
+
   if (cfg.companion?.server_ip) {
     fs.mkdirSync('/data/signaeos', { recursive: true });
     fs.writeFileSync('/data/signaeos/satellite.json',
@@ -192,6 +157,7 @@ async function applyConfig(cfg) {
                        remotePort: cfg.companion.server_port || 16622 }, null, 2));
     exec('systemctl restart companion-satellite 2>/dev/null || true', () => {});
   }
+
   await d1({ cmd: 'reload' }).catch(() => {});
 }
 
@@ -232,15 +198,15 @@ app.post('/api/display/1/prev',   async (req, res) => res.json(await d1({ cmd: '
 app.post('/api/display/1/reload', async (req, res) => res.json(await d1({ cmd: 'reload' })));
 
 // Display 2
-app.get ('/api/display/2/status',         async (req, res) => res.json(await d2({ cmd: 'status' })));
-app.post('/api/display/2/source',         async (req, res) => {
-  const name = req.body.name || decodeURIComponent(req.params.name || '');
+app.get ('/api/display/2/status', async (req, res) => res.json(await d2({ cmd: 'status' })));
+app.post('/api/display/2/source/:name', async (req, res) => {
+  const name = decodeURIComponent(req.params.name);
   const r = await d2({ cmd: 'source', source: name });
   if (r.ok) { const cfg = readConfig(); cfg.display2.current_source = name; writeConfig(cfg); }
   res.json(r);
 });
-app.post('/api/display/2/source/:name',   async (req, res) => {
-  const name = decodeURIComponent(req.params.name);
+app.post('/api/display/2/source', async (req, res) => {
+  const name = req.body.name || '';
   const r = await d2({ cmd: 'source', source: name });
   if (r.ok) { const cfg = readConfig(); cfg.display2.current_source = name; writeConfig(cfg); }
   res.json(r);
@@ -248,28 +214,70 @@ app.post('/api/display/2/source/:name',   async (req, res) => {
 app.post('/api/display/2/next', async (req, res) => res.json(await d2({ cmd: 'next' })));
 app.post('/api/display/2/prev', async (req, res) => res.json(await d2({ cmd: 'prev' })));
 
-// ── NDI sources — unified endpoint ─────────────────────────────────────────
-// GET /api/ndi/sources — discover all sources (local + all AMs + manual)
+// ── NDI ────────────────────────────────────────────────────────────────────
+
+// GET /api/ndi/sources — discover all sources
 app.get('/api/ndi/sources', async (req, res) => {
   const sources = await getAllNdiSources();
   res.json({ ok: true, sources });
 });
 
-// POST /api/ndi/manual — add a manual source
+// GET /api/ndi/config — current NDI SDK config
+app.get('/api/ndi/config', (req, res) => {
+  const cfg = readConfig();
+  res.json({ ok: true, ndi: cfg.ndi });
+});
+
+// POST /api/ndi/devices — add or update a device IP
+app.post('/api/ndi/devices', (req, res) => {
+  const { ip, label } = req.body;
+  if (!ip) return res.status(400).json({ ok: false, error: 'ip required' });
+  const cfg = readConfig();
+  cfg.ndi.devices = cfg.ndi.devices || [];
+  const idx = cfg.ndi.devices.findIndex(d => d.ip === ip);
+  const entry = { ip, label: label || ip };
+  if (idx >= 0) cfg.ndi.devices[idx] = entry;
+  else cfg.ndi.devices.push(entry);
+  writeConfig(cfg);
+  writeNdiConfig(cfg);
+  res.json({ ok: true });
+});
+
+// DELETE /api/ndi/devices/:ip — remove a device IP
+app.delete('/api/ndi/devices/:ip', (req, res) => {
+  const ip = decodeURIComponent(req.params.ip);
+  const cfg = readConfig();
+  cfg.ndi.devices = (cfg.ndi.devices || []).filter(d => d.ip !== ip);
+  writeConfig(cfg);
+  writeNdiConfig(cfg);
+  res.json({ ok: true });
+});
+
+// POST /api/ndi/discovery-server — set discovery server IP
+app.post('/api/ndi/discovery-server', (req, res) => {
+  const { ip } = req.body;
+  const cfg = readConfig();
+  cfg.ndi.discovery_server = ip || '';
+  writeConfig(cfg);
+  writeNdiConfig(cfg);
+  res.json({ ok: true });
+});
+
+// POST /api/ndi/manual — add manual source
 app.post('/api/ndi/manual', (req, res) => {
   const { label, name, ip } = req.body;
   if (!name) return res.status(400).json({ ok: false, error: 'name required' });
   const cfg = readConfig();
   cfg.ndi.manual_sources = cfg.ndi.manual_sources || [];
-  // Update existing or add new
   const idx = cfg.ndi.manual_sources.findIndex(s => s.name === name);
-  if (idx >= 0) cfg.ndi.manual_sources[idx] = { label: label || name, name, ip: ip || '' };
-  else cfg.ndi.manual_sources.push({ label: label || name, name, ip: ip || '' });
+  const entry = { label: label || name, name, ip: ip || '' };
+  if (idx >= 0) cfg.ndi.manual_sources[idx] = entry;
+  else cfg.ndi.manual_sources.push(entry);
   writeConfig(cfg);
   res.json({ ok: true });
 });
 
-// DELETE /api/ndi/manual/:name — remove a manual source
+// DELETE /api/ndi/manual/:name — remove manual source
 app.delete('/api/ndi/manual/:name', (req, res) => {
   const name = decodeURIComponent(req.params.name);
   const cfg = readConfig();
@@ -278,30 +286,7 @@ app.delete('/api/ndi/manual/:name', (req, res) => {
   res.json({ ok: true });
 });
 
-// POST /api/ndi/am — add an AM server
-app.post('/api/ndi/am', (req, res) => {
-  const { ip, port, label } = req.body;
-  if (!ip) return res.status(400).json({ ok: false, error: 'ip required' });
-  const cfg = readConfig();
-  cfg.ndi.access_managers = cfg.ndi.access_managers || [];
-  const idx = cfg.ndi.access_managers.findIndex(a => a.ip === ip);
-  const entry = { ip, port: port || 80, label: label || ip };
-  if (idx >= 0) cfg.ndi.access_managers[idx] = entry;
-  else cfg.ndi.access_managers.push(entry);
-  writeConfig(cfg);
-  res.json({ ok: true });
-});
-
-// DELETE /api/ndi/am/:ip — remove an AM server
-app.delete('/api/ndi/am/:ip', (req, res) => {
-  const ip = decodeURIComponent(req.params.ip);
-  const cfg = readConfig();
-  cfg.ndi.access_managers = (cfg.ndi.access_managers || []).filter(a => a.ip !== ip);
-  writeConfig(cfg);
-  res.json({ ok: true });
-});
-
-// Network
+// ── Network ────────────────────────────────────────────────────────────────
 app.get('/api/network/wifi/scan', (req, res) => {
   exec('nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan yes', (err, stdout) => {
     if (err) return res.json({ ok: false, networks: [] });
@@ -312,7 +297,7 @@ app.get('/api/network/wifi/scan', (req, res) => {
   });
 });
 
-app.post('/api/network/vlans', async (req, res) => {
+app.post('/api/network/vlans', (req, res) => {
   const cfg = readConfig();
   cfg.network.vlans = req.body.vlans || [];
   cfg.network.native_vlan = req.body.native_vlan || '';
@@ -325,7 +310,7 @@ app.post('/api/network/vlans', async (req, res) => {
       const gwArg = v.gateway ? `ipv4.gateway '${v.gateway}'` : '';
       return `nmcli con delete '${vif}' 2>/dev/null; nmcli con add type vlan con-name '${vif}' dev '${iface}' id ${v.id} ${ipArg} ${gwArg} ipv6.method ignore && nmcli con up '${vif}'`;
     });
-    if (cmds.length === 0) return res.json({ ok: true });
+    if (!cmds.length) return res.json({ ok: true });
     exec(cmds.join(' && '), err2 => {
       if (err2) return res.json({ ok: false, error: err2.message });
       res.json({ ok: true });
@@ -333,7 +318,7 @@ app.post('/api/network/vlans', async (req, res) => {
   });
 });
 
-// System
+// ── System ─────────────────────────────────────────────────────────────────
 app.get('/api/system', (req, res) => {
   try {
     const hostname = fs.readFileSync('/etc/hostname', 'utf8').trim();
@@ -357,5 +342,8 @@ app.get('/api/status', async (req, res) => {
   ]);
   res.json({ ok: true, display1: s1, display2: s2 });
 });
+
+// Write NDI config on startup with whatever is already configured
+try { writeNdiConfig(readConfig()); } catch {}
 
 app.listen(PORT, '0.0.0.0', () => console.log(`SignageOS WebUI :${PORT}`));
