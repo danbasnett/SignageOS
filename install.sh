@@ -11,8 +11,8 @@
 # =============================================================================
 set -euo pipefail
 
-SIGNAEOS_VERSION="@@VERSION@@"
-GITHUB_REPO="@@GITHUB_REPO@@"
+SIGNAEOS_VERSION="${SIGNAEOS_VERSION:-dev}"
+GITHUB_REPO="${GITHUB_REPO:-danbasnett/SignageOS}"
 NODE_VERSION="20"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -106,42 +106,45 @@ info "Node.js $(node --version) installed"
 # ── Companion Satellite ───────────────────────────────────────────────────────
 step "Installing Companion Satellite"
 
-# Get latest release info from GitHub API
-SAT_RELEASE=$(curl -fsSL "https://api.github.com/repos/bitfocus/companion-satellite/releases/latest")
-SAT_TAG=$(echo "$SAT_RELEASE" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
+SAT_RELEASE=$(curl -fsSL "https://api.github.com/repos/bitfocus/companion-satellite/releases/latest" 2>/dev/null || true)
+SAT_TAG=$(echo "$SAT_RELEASE" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\(.*\)".*/\1/' || true)
 
 if [ -z "$SAT_TAG" ]; then
   warn "Could not fetch Companion Satellite release info — skipping"
 else
   info "Latest Companion Satellite: $SAT_TAG"
 
-  # Find the right asset URL for our platform — inspect actual asset names
-  SAT_URL=$(echo "$SAT_RELEASE" | grep '"browser_download_url"' | grep "$PLATFORM" | grep '\.tar\.gz' | head -1 | sed 's/.*"browser_download_url": *"\(.*\)".*/\1/')
+  # Find asset URL matching our platform from the release asset list
+  SAT_URL=$(echo "$SAT_RELEASE" | grep '"browser_download_url"' | grep "$PLATFORM" | grep '\.tar\.gz' | head -1 | sed 's/.*"browser_download_url": *"\(.*\)".*/\1/' || true)
 
-  # Fallback: try common naming patterns
+  # If not found in API response, try known URL patterns
   if [ -z "$SAT_URL" ]; then
     SAT_VER=$(echo "$SAT_TAG" | tr -d 'v')
     for pattern in \
       "companion-satellite-${PLATFORM}.tar.gz" \
       "satellite-${PLATFORM}.tar.gz" \
-      "companion-satellite_${SAT_VER}_${PLATFORM}.tar.gz"; do
+      "companion-satellite_${SAT_VER}_${PLATFORM}.tar.gz" \
+      "companion-satellite-${SAT_VER}-${PLATFORM}.tar.gz"; do
       CANDIDATE="https://github.com/bitfocus/companion-satellite/releases/download/${SAT_TAG}/${pattern}"
-      if curl -fsSL --head "$CANDIDATE" 2>/dev/null | grep -q "200"; then
+      HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" -L "$CANDIDATE" 2>/dev/null || echo "000")
+      if [ "$HTTP_CODE" = "200" ]; then
         SAT_URL="$CANDIDATE"
+        info "Found asset: $pattern"
         break
       fi
     done
   fi
 
   if [ -z "$SAT_URL" ]; then
-    warn "Could not find Companion Satellite download URL for $PLATFORM"
+    warn "Could not determine Companion Satellite download URL for $PLATFORM"
+    warn "All available assets:"
+    echo "$SAT_RELEASE" | grep '"browser_download_url"' | sed 's/.*"browser_download_url": *"\(.*\)".*/  \1/'
     warn "Install manually from: https://github.com/bitfocus/companion-satellite/releases"
   else
-    info "Downloading from: $SAT_URL"
+    info "Downloading: $SAT_URL"
     mkdir -p /opt/companion-satellite
     TMP_SAT=$(mktemp -d)
-    curl -fsSL "$SAT_URL" -o "$TMP_SAT/satellite.tar.gz"
-    # Try with strip-components first, fall back without
+    curl -fsSL -L "$SAT_URL" -o "$TMP_SAT/satellite.tar.gz"
     tar -xzf "$TMP_SAT/satellite.tar.gz" -C /opt/companion-satellite --strip-components=1 2>/dev/null || \
     tar -xzf "$TMP_SAT/satellite.tar.gz" -C /opt/companion-satellite
     rm -rf "$TMP_SAT"
