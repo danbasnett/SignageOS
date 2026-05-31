@@ -39,18 +39,16 @@ launch_ndi() {
     kill "$NDI_PID"; wait "$NDI_PID" 2>/dev/null || true; NDI_PID=""; sleep 1
   fi
 
-  # Switch to workspace 2 → HDMI-A-2
-  sway_msg workspace 2
-  sleep 0.5
-
   if [[ -z "$source" ]]; then
     log "No NDI source — black screen on workspace 2"
     WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
     chromium-browser --kiosk --no-sandbox --ozone-platform=wayland \
+      --app-id=signaeos-display2 \
       --user-data-dir=/data/chromium-d2 \
       --app="data:text/html,<body style='background:%23000'></body>" 2>/dev/null || \
     WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
     chromium --kiosk --no-sandbox --ozone-platform=wayland \
+      --app-id=signaeos-display2 \
       --user-data-dir=/data/chromium-d2 \
       --app="data:text/html,<body style='background:%23000'></body>" &
     NDI_PID=$!
@@ -60,7 +58,6 @@ launch_ndi() {
   log "NDI → $source (workspace 2 / HDMI-A-2)"
 
   if command -v vlc &>/dev/null; then
-    # VLC must run as non-root — runs as admin already
     WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
     vlc --fullscreen --no-osd --no-video-title-show \
       --qt-minimal-view --no-qt-name-in-title \

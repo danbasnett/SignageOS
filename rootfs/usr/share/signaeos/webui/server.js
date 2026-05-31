@@ -417,6 +417,7 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
           '--disable-infobars',
           '--noerrdialogs',
           '--disable-session-crashed-bubble',
+      `--app-id=signaeos-test-d${display}`,
           `--app=file://${htmlPath}`
         ].join(' ');
         exec(cmd + ' &', err => {

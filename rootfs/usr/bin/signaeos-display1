@@ -72,10 +72,6 @@ launch_browser() {
 
   log "Launching $browser → $url"
 
-  # Switch to workspace 1 to ensure app lands on HDMI-A-1
-  sway_msg workspace 1
-  sleep 0.5
-
   local flags=(
     --kiosk
     --no-sandbox
@@ -92,6 +88,7 @@ launch_browser() {
     --user-data-dir=/data/chromium-profile
     --ozone-platform=wayland
     --disable-features=TranslateUI,OverscrollHistoryNavigation
+    --app-id=signaeos-display1
   )
 
   case "$browser" in
