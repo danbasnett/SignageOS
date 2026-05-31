@@ -1,15 +1,11 @@
-# SignageOS Sway config
 output HDMI-A-1 enable position 0 0
-output HDMI-A-2 enable position 1920 0
+output HDMI-A-2 enable position 3840 0
 
 workspace 1 output HDMI-A-1
 workspace 2 output HDMI-A-2
 
-# All chromium/vlc windows go fullscreen automatically
 for_window [app_id="chromium"] fullscreen enable
 for_window [app_id="vlc"]      fullscreen enable
-
-# Test cards
 assign [app_id="signaeos-test-d1"] workspace 1
 assign [app_id="signaeos-test-d2"] workspace 2
 for_window [app_id="signaeos-test-d1"] fullscreen enable

@@ -569,10 +569,14 @@ app.post('/api/monitors', (req, res) => {
   const d1mode = toMode(d1res);
   const d2mode = toMode(d2res);
 
+  // Calculate correct position based on which output is which
+  // Monitors are 4K (3840 wide) so second output starts at x=3840
+  const d1pos = '0';
+  const d2pos = '3840';
+
   const swayConf = `# SignageOS Sway config — auto-generated
-# Note: no explicit modes — let sway negotiate with the monitors
-output ${d1out} enable position 0 0 transform ${d1rot}
-output ${d2out} enable position 1920 0 transform ${d2rot}
+output ${d1out} enable position ${d1pos} 0 transform ${d1rot}
+output ${d2out} enable position ${d2pos} 0 transform ${d2rot}
 
 workspace 1 output ${d1out}
 workspace 2 output ${d2out}
@@ -597,13 +601,18 @@ focus_follows_mouse no
   try {
     fs.mkdirSync('/etc/sway', { recursive: true });
     fs.writeFileSync('/etc/sway/config', swayConf);
-    // Use swaymsg reload — reconfigures outputs without restarting sway
     const sock = execSync('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', { encoding: 'utf8' }).trim();
     if (sock) {
-      exec(`SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg reload`, () => {
-        exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
-          res.json({ ok: true, monitors: cfg.monitors });
-        });
+      const sm = `SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg`;
+      exec(`${sm} reload`, () => {
+        // Reapply positions after reload — sway sometimes resets them
+        setTimeout(() => {
+          exec(`${sm} 'output ${d1out} position ${d1pos} 0' && ${sm} 'output ${d2out} position ${d2pos} 0'`, () => {
+            exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
+              res.json({ ok: true, monitors: cfg.monitors });
+            });
+          });
+        }, 1000);
       });
     } else {
       exec('systemctl restart sway && sleep 5 && systemctl restart signaeos-display1 signaeos-display2', err => {
