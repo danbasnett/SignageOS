@@ -404,11 +404,11 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 
   exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
     // Switch to correct workspace first
-    exec(`WAYLAND_DISPLAY=${socket} XDG_RUNTIME_DIR=/run/user/0 swaymsg workspace ${workspace} 2>/dev/null; true`, () => {
+    exec(`WAYLAND_DISPLAY=${socket} XDG_RUNTIME_DIR=/run/user/1000 swaymsg workspace ${workspace} 2>/dev/null; true`, () => {
       setTimeout(() => {
         const cmd = [
           `WAYLAND_DISPLAY=${socket}`,
-          `XDG_RUNTIME_DIR=/run/user/0`,
+          `XDG_RUNTIME_DIR=/run/user/1000`,
           'chromium',
           '--kiosk',
           '--no-sandbox',

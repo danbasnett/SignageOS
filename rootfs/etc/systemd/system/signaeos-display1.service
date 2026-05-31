@@ -1,16 +1,17 @@
 [Unit]
 Description=SignageOS Display 1 (Web)
-After=weston-d1.service signaeos-webui.service
-Wants=weston-d1.service
+After=network.target signaeos-webui.service
+Wants=signaeos-webui.service
 
 [Service]
 Type=simple
+User=admin
 ExecStart=/usr/bin/signaeos-display1
 Restart=always
 RestartSec=5
-Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=WAYLAND_DISPLAY=wayland-1
-Environment=HOME=/root
+Environment=HOME=/home/admin
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=signaeos-display1

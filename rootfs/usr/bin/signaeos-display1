@@ -1,15 +1,26 @@
 #!/usr/bin/env bash
-# signaeos-display1 — Chromium/Firefox kiosk on HDMI-1
+# signaeos-display1 — Chromium kiosk on workspace 1 (HDMI-A-1)
+# Runs as admin user under sway
 set -euo pipefail
 
 CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display1.sock"
 BROWSER_PID=""
+XDG_RUNTIME_DIR="/run/user/1000"
+WAYLAND_DISPLAY="wayland-1"
+
+export XDG_RUNTIME_DIR WAYLAND_DISPLAY
 
 log()  { logger -t "signaeos-display1" -- "$*"; echo "[$(date '+%H:%M:%S')] [d1] $*"; }
 warn() { logger -t "signaeos-display1" -- "WARN: $*"; }
 cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+
+sway_msg() {
+  local sock
+  sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+  [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
+}
 
 ensure_config() {
   mkdir -p /data/signaeos
@@ -24,7 +35,7 @@ ensure_config() {
     "urls": [{ "label": "Setup", "url": "http://localhost:3000" }]
   },
   "display2": { "current_source": "", "sources": [] },
-  "ndi": { "access_manager_ip": "", "access_manager_port": 80, "groups": [] },
+  "ndi": { "devices": [], "discovery_server": "", "manual_sources": [] },
   "companion": { "server_ip": "", "server_port": 16622 },
   "network": { "hostname": "signaeos", "native_vlan": "", "vlans": [], "wifi_ssid": "", "wifi_password": "" },
   "ssh": { "authorized_keys": "" }
@@ -32,46 +43,18 @@ ensure_config() {
 JSON
 }
 
-apply_settings() {
-  local h; h=$(cfg '.network.hostname' "signaeos")
-  echo "$h" > /etc/hostname; hostname "$h" 2>/dev/null || true
-  local keys; keys=$(cfg '.ssh.authorized_keys' "")
-  if [[ -n "$keys" ]]; then
-    mkdir -p /root/.ssh
-    echo "$keys" > /root/.ssh/authorized_keys
-    chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys
-  fi
-}
-
-apply_vlans() {
-  local count; count=$(jq '.network.vlans | length' "$CONFIG" 2>/dev/null || echo 0)
-  (( count == 0 )) && return
-  modprobe 8021q 2>/dev/null || true
-  local iface; iface=$(ip -o link show | awk -F': ' '$2 ~ /^eth|^en/ {print $2; exit}')
-  [[ -z "$iface" ]] && return
-  jq -c '.network.vlans[]' "$CONFIG" 2>/dev/null | while read -r vlan; do
-    local id ip gw
-    id=$(echo "$vlan" | jq -r '.id')
-    ip=$(echo "$vlan" | jq -r '.ip // ""')
-    gw=$(echo "$vlan" | jq -r '.gateway // ""')
-    local vif="${iface}.${id}"
-    nmcli con show "$vif" &>/dev/null 2>&1 || \
-      nmcli con add type vlan con-name "$vif" dev "$iface" id "$id" \
-        ${ip:+ipv4.method manual ipv4.addresses "$ip"} \
-        ${gw:+ipv4.gateway "$gw"} \
-        ipv6.method ignore 2>/dev/null || true
-    nmcli con up "$vif" 2>/dev/null || true
-  done
-}
-
-wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1
+wait_sway() {
+  log "Waiting for sway..."
   local n=60
   while (( n-- > 0 )); do
-    [[ -S "/run/user/0/wayland-1" ]] || [[ -S "/run/user/0/sway-ipc"* ]] && { log "Wayland ready"; return; }
+    [[ -S "/run/user/1000/wayland-1" ]] && \
+    ls /run/user/1000/sway-ipc.*.sock &>/dev/null 2>&1 && {
+      log "Sway ready"
+      return 0
+    }
     sleep 1
   done
-  warn "Wayland not ready after 60s — attempting anyway"
+  warn "Sway not ready after 60s — attempting anyway"
 }
 
 current_url() {
@@ -82,24 +65,40 @@ current_url() {
 launch_browser() {
   local url="$1"
   local browser; browser=$(cfg '.display1.browser' "chromium")
+
   if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
     kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
   fi
-  log "Launching $browser → $url (workspace 1 / HDMI-A-1)"
-  # Switch to workspace 1 before launching — sway places new windows on current workspace
-  WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 swaymsg workspace 1 2>/dev/null || true
+
+  log "Launching $browser → $url"
+
+  # Switch to workspace 1 to ensure app lands on HDMI-A-1
+  sway_msg workspace 1
   sleep 0.5
-  local flags=(--kiosk --no-sandbox --noerrdialogs --disable-infobars
-    --disable-session-crashed-bubble --no-first-run --disable-pinch
-    --autoplay-policy=no-user-gesture-required --disable-background-networking
-    --disable-sync --no-default-browser-check --password-store=basic
-    --user-data-dir=/data/chromium-profile --ozone-platform=wayland
-    --disable-features=TranslateUI,OverscrollHistoryNavigation)
+
+  local flags=(
+    --kiosk
+    --no-sandbox
+    --noerrdialogs
+    --disable-infobars
+    --disable-session-crashed-bubble
+    --no-first-run
+    --disable-pinch
+    --autoplay-policy=no-user-gesture-required
+    --disable-background-networking
+    --disable-sync
+    --no-default-browser-check
+    --password-store=basic
+    --user-data-dir=/data/chromium-profile
+    --ozone-platform=wayland
+    --disable-features=TranslateUI,OverscrollHistoryNavigation
+  )
+
   case "$browser" in
     chromium*)
-      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
+      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
       chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
-      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
+      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
       chromium "${flags[@]}" "$url" &
       ;;
     firefox*)
@@ -109,7 +108,7 @@ user_pref("browser.sessionstore.resume_from_crash", false);
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);
 P
-      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
+      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
       firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
       ;;
   esac
@@ -153,20 +152,22 @@ handle_command() {
 
 log "Display 1 starting"
 ensure_config
-apply_settings
-apply_vlans
-wait_display
+wait_sway
 mkdir -p /run/signaeos
 rm -f "$SOCKET"
-while true; do socat UNIX-LISTEN:"$SOCKET",fork EXEC:"$0 --handle-command" 2>/dev/null || sleep 2; done &
+while true; do
+  socat UNIX-LISTEN:"$SOCKET",fork EXEC:"$0 --handle-command" 2>/dev/null || sleep 2
+done &
 
 role=$(cfg '.role' "both")
 if [[ "$role" == "ndi" ]]; then log "Role=ndi, display1 inactive"; sleep infinity; fi
 
 launch_browser "$(current_url)"
+
 while true; do
   sleep 15
   if [[ -n "$BROWSER_PID" ]] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
-    warn "Browser died — restarting"; BROWSER_PID=""; sleep 2; launch_browser "$(current_url)"
+    warn "Browser died — restarting"; BROWSER_PID=""; sleep 2
+    launch_browser "$(current_url)"
   fi
 done

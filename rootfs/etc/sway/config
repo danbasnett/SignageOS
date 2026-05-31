@@ -1,14 +1,10 @@
 # SignageOS Sway config
+output HDMI-A-1 enable mode 1920x1080@60Hz position 0 0
+output HDMI-A-2 enable mode 1920x1080@60Hz position 1920 0
 
-# ── Outputs ────────────────────────────────────────────────────────────────
-output HDMI-A-1 mode 1920x1080@60Hz position 0 0
-output HDMI-A-2 mode 1920x1080@60Hz position 1920 0
-
-# ── Workspaces to outputs ──────────────────────────────────────────────────
 workspace 1 output HDMI-A-1
 workspace 2 output HDMI-A-2
 
-# ── Kiosk settings ────────────────────────────────────────────────────────
 default_border none
 default_floating_border none
 hide_edge_borders --i3 both
@@ -16,7 +12,3 @@ gaps inner 0
 gaps outer 0
 seat * hide_cursor 3000
 focus_follows_mouse no
-
-# ── Launch displays ────────────────────────────────────────────────────────
-exec /usr/bin/signaeos-display1
-exec sleep 8 && /usr/bin/signaeos-display2
