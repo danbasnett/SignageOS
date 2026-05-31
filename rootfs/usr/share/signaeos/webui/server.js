@@ -492,7 +492,7 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
             'sudo -u admin',
             `WAYLAND_DISPLAY=wayland-1`,
             `XDG_RUNTIME_DIR=/run/user/1000`,
-            'chromium',
+            '/usr/lib/chromium/chromium',
             '--kiosk',
             '--start-fullscreen',
             '--no-sandbox',
