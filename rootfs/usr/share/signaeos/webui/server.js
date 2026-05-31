@@ -403,28 +403,33 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
   fs.writeFileSync(htmlPath, html);
 
   exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
-    // Switch to correct workspace first
-    exec(`WAYLAND_DISPLAY=${socket} XDG_RUNTIME_DIR=/run/user/1000 swaymsg workspace ${workspace} 2>/dev/null; true`, () => {
-      setTimeout(() => {
-        const cmd = [
-          `WAYLAND_DISPLAY=${socket}`,
-          `XDG_RUNTIME_DIR=/run/user/1000`,
-          'chromium',
-          '--kiosk',
-          '--no-sandbox',
-          '--ozone-platform=wayland',
-          `--user-data-dir=/data/chromium-test-d${display}`,
-          '--disable-infobars',
-          '--noerrdialogs',
-          '--disable-session-crashed-bubble',
-      `--app-id=signaeos-test-d${display}`,
-          `--app=file://${htmlPath}`
-        ].join(' ');
-        exec(cmd + ' &', err => {
-          if (err) return res.json({ ok: false, error: err.message });
-          res.json({ ok: true });
-        });
-      }, 500);
+    // Find sway socket dynamically and switch workspace
+    exec('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', (e, sock) => {
+      sock = (sock || '').trim();
+      const switchCmd = sock
+        ? `SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg workspace ${workspace} 2>/dev/null || true`
+        : 'true';
+      exec(switchCmd, () => {
+        setTimeout(() => {
+          const cmd = [
+            `WAYLAND_DISPLAY=wayland-1`,
+            `XDG_RUNTIME_DIR=/run/user/1000`,
+            'chromium',
+            '--kiosk',
+            '--no-sandbox',
+            '--ozone-platform=wayland',
+            `--user-data-dir=/data/chromium-test-d${display}`,
+            '--disable-infobars',
+            '--noerrdialogs',
+            '--disable-session-crashed-bubble',
+            `--app=file://${htmlPath}`
+          ].join(' ');
+          exec(cmd + ' &', err => {
+            if (err) return res.json({ ok: false, error: err.message });
+            res.json({ ok: true });
+          });
+        }, 500);
+      });
     });
   });
 });

@@ -39,22 +39,8 @@ launch_ndi() {
   fi
 
   if [[ -z "$source" ]]; then
-    log "No NDI source — black screen on workspace 2"
-    # Switch to workspace 2 first
-    local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
-    [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "workspace 2" 2>/dev/null || true
-    sleep 0.3
-    WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-    chromium-browser --kiosk --no-sandbox --ozone-platform=wayland \
-      --class=signaeos-display2 \
-      --user-data-dir=/data/chromium-d2 \
-      --app="data:text/html,<body style='background:%23000'></body>" 2>/dev/null || \
-    WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-    chromium --kiosk --no-sandbox --ozone-platform=wayland \
-      --class=signaeos-display2 \
-      --user-data-dir=/data/chromium-d2 \
-      --app="data:text/html,<body style='background:%23000'></body>" &
-    NDI_PID=$!
+    log "No NDI source — workspace 2 left empty (black)"
+    NDI_PID=""
     return
   fi
 

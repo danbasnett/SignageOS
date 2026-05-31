@@ -74,40 +74,44 @@ launch_browser() {
 
   log "Launching $browser → $url (workspace 1)"
 
-  local flags=(
-    --kiosk
-    --no-sandbox
-    --noerrdialogs
-    --disable-infobars
-    --disable-session-crashed-bubble
-    --no-first-run
-    --disable-pinch
-    --autoplay-policy=no-user-gesture-required
-    --disable-background-networking
-    --disable-sync
-    --no-default-browser-check
-    --password-store=basic
-    --user-data-dir=/data/chromium-profile
-    --ozone-platform=wayland
-    --disable-features=TranslateUI,OverscrollHistoryNavigation
-    --class=signaeos-display1
-  )
+  # Kill existing
+  if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
+    kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
+  fi
+
+  # Clean stale singleton locks
+  rm -f /data/chromium-profile/SingletonLock /data/chromium-profile/SingletonSocket \
+        /data/chromium-profile/SingletonCookie 2>/dev/null || true
+
+  log "Launching $browser → $url (workspace 1)"
+
+  # Switch to workspace 1 before launch
+  local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+  [[ -n "$sock" ]] && SWAYSOCK="$sock" WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
+    swaymsg "workspace 1" 2>/dev/null || true
+  sleep 0.5
 
   case "$browser" in
     chromium*)
-      # Use swaymsg exec for guaranteed workspace placement
-      local sock
-      sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
-      local cmd="chromium-browser ${flags[*]} '$url' || chromium ${flags[*]} '$url'"
-      if [[ -n "$sock" ]]; then
-        SWAYSOCK="$sock" WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-          swaymsg "workspace 1" 2>/dev/null || true
-        sleep 0.3
-      fi
+      # Use chromium directly (not chromium-browser wrapper which reorders flags)
       WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-        chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
-      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-        chromium "${flags[@]}" "$url" &
+      chromium \
+        --kiosk \
+        --no-sandbox \
+        --noerrdialogs \
+        --disable-infobars \
+        --disable-session-crashed-bubble \
+        --no-first-run \
+        --disable-pinch \
+        --autoplay-policy=no-user-gesture-required \
+        --disable-background-networking \
+        --disable-sync \
+        --no-default-browser-check \
+        --password-store=basic \
+        --user-data-dir=/data/chromium-profile \
+        --ozone-platform=wayland \
+        --disable-features=TranslateUI,OverscrollHistoryNavigation \
+        "$url" &
       BROWSER_PID=$!
       ;;
     firefox*)
@@ -118,7 +122,7 @@ user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);
 P
       MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-        firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
+      firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
       BROWSER_PID=$!
       ;;
   esac
