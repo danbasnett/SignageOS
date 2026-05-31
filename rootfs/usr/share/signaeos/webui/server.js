@@ -229,38 +229,67 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── Kiosk proxy page — loaded once by Chromium, navigates via iframe ───────
-// Chromium always loads this page. It shows content in a fullscreen iframe
-// and polls every second for URL changes, switching the iframe src when needed.
-// This avoids killing/relaunching Chromium for URL changes (no tab bar flash).
+// ── Kiosk controller page ────────────────────────────────────────────────────
+// Loaded once by Chromium. Uses window.location.replace to navigate.
+// After navigating away, Chromium's back/forward is locked in kiosk mode
+// so we use CDP (remote debugging) to navigate back when URL changes.
 app.get('/kiosk/display1', (req, res) => {
   const cfg = readConfig();
   const idx = cfg.display1?.current_index || 0;
   const url = cfg.display1?.urls?.[idx]?.url || 'http://localhost:3000';
   res.setHeader('Content-Type', 'text/html');
-  res.send(`<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<style>*{margin:0;padding:0}html,body,iframe{width:100%;height:100%;border:none;display:block;overflow:hidden;background:#000}</style>
-</head><body>
-<iframe id="f" src="${url.replace(/"/g,'&quot;')}" allowfullscreen></iframe>
-<script>
-var current = ${JSON.stringify(url)};
-function poll() {
-  fetch('/api/display/1/status')
-    .then(function(r){return r.json();})
-    .then(function(s){
-      if(s.url && s.url !== current) {
-        current = s.url;
-        document.getElementById('f').src = s.url;
-      }
-    })
-    .catch(function(){});
-  setTimeout(poll, 1000);
-}
-setTimeout(poll, 1000);
-</script>
-</body></html>`);
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>*{margin:0;padding:0}body{background:#000}</style></head>
+<body><script>window.location.replace(${JSON.stringify(url)});</script></body></html>`);
 });
+
+// ── CDP navigation helper ─────────────────────────────────────────────────
+function cdpNavigate(url) {
+  return new Promise(resolve => {
+    const req = http.get('http://127.0.0.1:9222/json', res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const targets = JSON.parse(data);
+          const page = targets.find(t => t.type === 'page');
+          if (!page) return resolve(false);
+          const wsUrl = page.webSocketDebuggerUrl;
+          const urlObj = new URL(wsUrl);
+          const sock = net.createConnection(parseInt(urlObj.port) || 9222, '127.0.0.1', () => {
+            const key = Buffer.from(`${Math.random()}`).toString('base64');
+            sock.write(
+              `GET ${urlObj.pathname}${urlObj.search} HTTP/1.1\r\n` +
+              `Host: 127.0.0.1:${urlObj.port}\r\n` +
+              `Upgrade: websocket\r\nConnection: Upgrade\r\n` +
+              `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`
+            );
+          });
+          let done = false;
+          sock.on('data', chunk => {
+            if (done) return;
+            // After HTTP upgrade response, send CDP command
+            if (chunk.toString().includes('101')) {
+              done = true;
+              const msg = JSON.stringify({ id: 1, method: 'Page.navigate', params: { url } });
+              const buf = Buffer.from(msg);
+              const frame = Buffer.alloc(2 + buf.length);
+              frame[0] = 0x81; frame[1] = buf.length;
+              buf.copy(frame, 2);
+              sock.write(frame);
+              setTimeout(() => { sock.destroy(); resolve(true); }, 300);
+            }
+          });
+          sock.on('error', () => resolve(false));
+          setTimeout(() => { sock.destroy(); resolve(false); }, 3000);
+        } catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(2000, () => { req.destroy(); resolve(false); });
+  });
+}
+
 app.get('/api/config', (req, res) => {
   const cfg = readConfig();
   const safe = JSON.parse(JSON.stringify(cfg));
@@ -286,15 +315,22 @@ app.get ('/api/display/1/status', async (req, res) => {
   const url = cfg.display1?.urls?.[idx]?.url || '';
   const label = cfg.display1?.urls?.[idx]?.label || '';
   const total = (cfg.display1?.urls || []).length;
-  // Also try socket for live status
-  const live = await d1({ cmd: 'status' }).catch(() => ({}));
-  res.json({ ok: true, display: 1, index: idx, url, label, total, ...live });
+  res.json({ ok: true, display: 1, index: idx, url, label, total });
 });
+
 app.post('/api/display/1/switch/:index', async (req, res) => {
   const idx = parseInt(req.params.index, 10);
-  const r = await d1({ cmd: 'switch', index: idx });
-  if (r.ok) { const cfg = readConfig(); cfg.display1.current_index = idx; writeConfig(cfg); }
-  res.json(r);
+  const cfg = readConfig();
+  const total = (cfg.display1?.urls || []).length;
+  if (idx < 0 || idx >= total) return res.json({ ok: false, error: 'index out of range' });
+  cfg.display1.current_index = idx;
+  writeConfig(cfg);
+  const url = cfg.display1.urls[idx]?.url || '';
+  // Navigate via CDP (no Chromium restart)
+  const navigated = url ? await cdpNavigate(url) : false;
+  // Fallback: tell display1 daemon to switch (will restart browser if CDP failed)
+  if (!navigated && url) await d1({ cmd: 'switch', index: idx }).catch(() => {});
+  res.json({ ok: true, url, navigated });
 });
 app.post('/api/display/1/next',   async (req, res) => res.json(await d1({ cmd: 'next' })));
 app.post('/api/display/1/prev',   async (req, res) => res.json(await d1({ cmd: 'prev' })));
