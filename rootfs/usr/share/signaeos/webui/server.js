@@ -430,8 +430,10 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 });
 
 app.post('/api/test/stop', (req, res) => {
-  exec('pkill -f "chromium-test-d" 2>/dev/null; true', () => {
-    exec('systemctl restart signaeos-display1 signaeos-display2 2>/dev/null; true', () => {
+  // Kill test chromium instances (identified by their user-data-dir)
+  exec('pkill -f "chromium-test-d" 2>/dev/null; pkill -f "signaeos-test-d" 2>/dev/null; true', () => {
+    // Restart display services to restore normal output
+    exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', err => {
       res.json({ ok: true });
     });
   });
