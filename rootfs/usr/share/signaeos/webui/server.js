@@ -608,16 +608,19 @@ focus_follows_mouse no
         setTimeout(() => {
           // Reapply positions
           exec(`${sm} 'output ${d1out} position ${d1pos} 0' && ${sm} 'output ${d2out} position ${d2pos} 0'`, () => {
-            // Kill existing windows so they relaunch on correct workspaces
-            exec(`${sm} '[app_id="chromium"] kill' 2>/dev/null; true`, () => {
-              exec('pkill -f "user-data-dir=/data/chromium" 2>/dev/null; true', () => {
-                setTimeout(() => {
-                  exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
-                    res.json({ ok: true, monitors: cfg.monitors });
-                  });
-                }, 1000);
+            if (swap) {
+              // Move workspace 1 to d1out and workspace 2 to d2out
+              exec(`${sm} '[workspace=1] move workspace to output ${d1out}' 2>/dev/null; ${sm} '[workspace=2] move workspace to output ${d2out}' 2>/dev/null; true`, () => {
+                // Re-fullscreen everything
+                exec(`${sm} '[app_id="chromium"] fullscreen enable' 2>/dev/null; true`, () => {
+                  res.json({ ok: true, monitors: cfg.monitors });
+                });
               });
-            });
+            } else {
+              exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
+                res.json({ ok: true, monitors: cfg.monitors });
+              });
+            }
           });
         }, 1000);
       });
