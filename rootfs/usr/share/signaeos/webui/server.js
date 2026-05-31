@@ -272,10 +272,17 @@ function cdpNavigate(url) {
             if (chunk.toString().includes('101')) {
               done = true;
               const msg = JSON.stringify({ id: 1, method: 'Page.navigate', params: { url } });
-              const buf = Buffer.from(msg);
-              const frame = Buffer.alloc(2 + buf.length);
-              frame[0] = 0x81; frame[1] = buf.length;
-              buf.copy(frame, 2);
+              const msgBuf = Buffer.from(msg);
+              // WebSocket client->server frames MUST be masked
+              const mask = Buffer.allocUnsafe(4);
+              for (let i = 0; i < 4; i++) mask[i] = Math.floor(Math.random() * 256);
+              const masked = Buffer.allocUnsafe(msgBuf.length);
+              for (let i = 0; i < msgBuf.length; i++) masked[i] = msgBuf[i] ^ mask[i % 4];
+              const frame = Buffer.alloc(2 + 4 + masked.length);
+              frame[0] = 0x81;           // FIN + text opcode
+              frame[1] = 0x80 | msgBuf.length; // MASK bit + length
+              mask.copy(frame, 2);
+              masked.copy(frame, 6);
               sock.write(frame);
               setTimeout(() => { sock.destroy(); resolve(true); }, 300);
             }
