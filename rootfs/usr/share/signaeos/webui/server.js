@@ -605,11 +605,18 @@ focus_follows_mouse no
     if (sock) {
       const sm = `SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg`;
       exec(`${sm} reload`, () => {
-        // Reapply positions after reload — sway sometimes resets them
         setTimeout(() => {
+          // Reapply positions
           exec(`${sm} 'output ${d1out} position ${d1pos} 0' && ${sm} 'output ${d2out} position ${d2pos} 0'`, () => {
-            exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
-              res.json({ ok: true, monitors: cfg.monitors });
+            // Kill existing windows so they relaunch on correct workspaces
+            exec(`${sm} '[app_id="chromium"] kill' 2>/dev/null; true`, () => {
+              exec('pkill -f "user-data-dir=/data/chromium" 2>/dev/null; true', () => {
+                setTimeout(() => {
+                  exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
+                    res.json({ ok: true, monitors: cfg.monitors });
+                  });
+                }, 1000);
+              });
             });
           });
         }, 1000);
