@@ -383,20 +383,47 @@ app.post('/api/network/vlans', (req, res) => {
 
 // ── Test card ──────────────────────────────────────────────────────────────
 app.post('/api/test/:display', (req, res) => {
-  const display = req.params.display; // '1' or '2' or 'all'
+  const display = req.params.display;
   const wayland = process.env.WAYLAND_DISPLAY || 'wayland-1';
   const xdg     = '/run/user/0';
+  const colors  = ['red','orange','yellow','lime','cyan','blue','violet','white'];
 
-  const testHtml = `data:text/html,<html><body style="margin:0;background:%23000;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;font-family:sans-serif"><div style="display:grid;grid-template-columns:repeat(8,1fr);width:100vw;height:60vh;position:fixed;top:0">${['red','orange','yellow','lime','cyan','blue','violet','white'].map(c=>`<div style="background:${c}"></div>`).join('')}</div><div style="position:relative;z-index:9;text-align:center;color:white;text-shadow:2px 2px 4px black"><h1 style="font-size:5vw;margin:0">SignageOS</h1><h2 style="font-size:3vw;margin:10px 0;color:%23aef">Display ${display} Test Card</h2><p style="font-size:2vw">HDMI-${display === '1' ? 'A-1' : 'A-2'} ✓</p></div></body></html>`;
+  // Write test card HTML to a temp file — avoids shell quoting issues
+  const htmlPath = `/tmp/signaeos-test-d${display}.html`;
+  const html = `<!DOCTYPE html><html><body style="margin:0;overflow:hidden;background:#000;font-family:sans-serif">
+<div style="display:grid;grid-template-columns:repeat(8,1fr);width:100vw;height:55vh">
+${colors.map(c => `<div style="background:${c}"></div>`).join('')}
+</div>
+<div style="text-align:center;color:white;padding:40px;text-shadow:2px 2px 6px #000">
+  <h1 style="font-size:5vw;margin:0 0 16px">SignageOS</h1>
+  <h2 style="font-size:3vw;margin:0 0 12px;color:#aef">Display ${display} Test Card</h2>
+  <p style="font-size:2vw;margin:0;color:#8f8">Weston + Wayland OK</p>
+  <p style="font-size:1.5vw;margin:8px 0 0;color:#888">${new Date().toLocaleTimeString()}</p>
+</div>
+</body></html>`;
 
-  const cmd = `WAYLAND_DISPLAY=${wayland} XDG_RUNTIME_DIR=${xdg} ` +
-    `chromium --kiosk --no-sandbox --ozone-platform=wayland ` +
-    `--user-data-dir=/data/chromium-test-d${display} ` +
-    `--disable-infobars --noerrdialogs "${testHtml}" &`;
+  fs.writeFileSync(htmlPath, html);
 
-  exec(cmd, err => {
-    if (err) return res.json({ ok: false, error: err.message });
-    res.json({ ok: true });
+  // Kill any existing test card for this display
+  exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
+    const cmd = [
+      `WAYLAND_DISPLAY=${wayland}`,
+      `XDG_RUNTIME_DIR=${xdg}`,
+      'chromium',
+      '--kiosk',
+      '--no-sandbox',
+      '--ozone-platform=wayland',
+      `--user-data-dir=/data/chromium-test-d${display}`,
+      '--disable-infobars',
+      '--noerrdialogs',
+      '--disable-session-crashed-bubble',
+      `--app=file://${htmlPath}`
+    ].join(' ');
+
+    exec(cmd + ' &', err => {
+      if (err) return res.json({ ok: false, error: err.message });
+      res.json({ ok: true });
+    });
   });
 });
 
