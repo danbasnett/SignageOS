@@ -451,11 +451,14 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
         : 'true';
       exec(switchCmd, () => {
         setTimeout(() => {
+          // Must run as admin since wayland socket is in admin's session
           const cmd = [
+            'sudo -u admin',
             `WAYLAND_DISPLAY=wayland-1`,
             `XDG_RUNTIME_DIR=/run/user/1000`,
             'chromium',
             '--kiosk',
+            '--start-fullscreen',
             '--no-sandbox',
             '--ozone-platform=wayland',
             `--user-data-dir=/data/chromium-test-d${display}`,
@@ -466,6 +469,13 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
           ].join(' ');
           exec(cmd + ' &', err => {
             if (err) return res.json({ ok: false, error: err.message });
+            // Force fullscreen after launch
+            setTimeout(() => {
+              exec('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', (e, sock) => {
+                sock = (sock || '').trim();
+                if (sock) exec(`SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg '[app_id="chromium"] fullscreen enable' 2>/dev/null`);
+              });
+            }, 3000);
             res.json({ ok: true });
           });
         }, 500);
@@ -524,21 +534,20 @@ app.post('/api/monitors', (req, res) => {
   const d2mode = toMode(d2res);
 
   const swayConf = `# SignageOS Sway config — auto-generated
-output ${d1out} enable mode ${d1mode} position 0 0 transform ${d1rot}
-output ${d2out} enable mode ${d2mode} position 1920 0 transform ${d2rot}
+# Note: no explicit modes — let sway negotiate with the monitors
+output ${d1out} enable position 0 0 transform ${d1rot}
+output ${d2out} enable position 1920 0 transform ${d2rot}
 
 workspace 1 output ${d1out}
 workspace 2 output ${d2out}
 
-assign [app_id="signaeos-display1"] workspace 1
-assign [app_id="signaeos-display2"] workspace 2
-assign [app_id="signaeos-test-d1"]  workspace 1
-assign [app_id="signaeos-test-d2"]  workspace 2
+for_window [app_id="chromium"] fullscreen enable
+for_window [app_id="vlc"]      fullscreen enable
 
-for_window [app_id="signaeos-display1"] fullscreen enable
-for_window [app_id="signaeos-display2"] fullscreen enable
-for_window [app_id="signaeos-test-d1"]  fullscreen enable
-for_window [app_id="signaeos-test-d2"]  fullscreen enable
+assign [app_id="signaeos-test-d1"] workspace 1
+assign [app_id="signaeos-test-d2"] workspace 2
+for_window [app_id="signaeos-test-d1"] fullscreen enable
+for_window [app_id="signaeos-test-d2"] fullscreen enable
 
 default_border none
 default_floating_border none
