@@ -384,8 +384,8 @@ app.post('/api/network/vlans', (req, res) => {
 // ── Test card ──────────────────────────────────────────────────────────────
 app.post('/api/test/:display', (req, res) => {
   const display  = req.params.display;
-  const socket   = display === '2' ? 'wayland-d2' : 'wayland-d1';
-  const xdg      = '/run/user/0';
+  const socket   = 'wayland-1'; // sway socket
+  const workspace = display === '2' ? '2' : '1';
   const colors   = ['red','orange','yellow','lime','cyan','blue','violet','white'];
   const htmlPath = `/tmp/signaeos-test-d${display}.html`;
 
@@ -403,23 +403,27 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
   fs.writeFileSync(htmlPath, html);
 
   exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
-    const cmd = [
-      `WAYLAND_DISPLAY=${socket}`,
-      `XDG_RUNTIME_DIR=${xdg}`,
-      'chromium',
-      '--kiosk',
-      '--no-sandbox',
-      '--ozone-platform=wayland',
-      `--user-data-dir=/data/chromium-test-d${display}`,
-      '--disable-infobars',
-      '--noerrdialogs',
-      '--disable-session-crashed-bubble',
-      `--app=file://${htmlPath}`
-    ].join(' ');
-
-    exec(cmd + ' &', err => {
-      if (err) return res.json({ ok: false, error: err.message });
-      res.json({ ok: true });
+    // Switch to correct workspace first
+    exec(`WAYLAND_DISPLAY=${socket} XDG_RUNTIME_DIR=/run/user/0 swaymsg workspace ${workspace} 2>/dev/null; true`, () => {
+      setTimeout(() => {
+        const cmd = [
+          `WAYLAND_DISPLAY=${socket}`,
+          `XDG_RUNTIME_DIR=/run/user/0`,
+          'chromium',
+          '--kiosk',
+          '--no-sandbox',
+          '--ozone-platform=wayland',
+          `--user-data-dir=/data/chromium-test-d${display}`,
+          '--disable-infobars',
+          '--noerrdialogs',
+          '--disable-session-crashed-bubble',
+          `--app=file://${htmlPath}`
+        ].join(' ');
+        exec(cmd + ' &', err => {
+          if (err) return res.json({ ok: false, error: err.message });
+          res.json({ ok: true });
+        });
+      }, 500);
     });
   });
 });
@@ -433,7 +437,6 @@ app.post('/api/test/stop', (req, res) => {
 });
 
 // ── Monitor configuration ──────────────────────────────────────────────────
-// GET /api/monitors — current config
 app.get('/api/monitors', (req, res) => {
   const cfg = readConfig();
   res.json({ ok: true, monitors: cfg.monitors || {
@@ -442,55 +445,45 @@ app.get('/api/monitors', (req, res) => {
   }});
 });
 
-// POST /api/monitors — update monitor config, rewrite weston.ini files, restart
 app.post('/api/monitors', (req, res) => {
   const { display1, display2, swap } = req.body;
   const cfg = readConfig();
 
-  // If swap=true, exchange the output assignments
-  let d1output = swap ? 'HDMI-A-2' : (display1?.output || 'HDMI-A-1');
-  let d2output = swap ? 'HDMI-A-1' : (display2?.output || 'HDMI-A-2');
-  const d1res  = display1?.resolution || '1920x1080@60';
-  const d2res  = display2?.resolution || '1920x1080@60';
-  const d1rot  = display1?.rotation   || 'normal';
-  const d2rot  = display2?.rotation   || 'normal';
+  let d1out = swap ? 'HDMI-A-2' : (display1?.output || 'HDMI-A-1');
+  let d2out = swap ? 'HDMI-A-1' : (display2?.output || 'HDMI-A-2');
+  const d1res = display1?.resolution || '1920x1080@60';
+  const d2res = display2?.resolution || '1920x1080@60';
+  const d1rot = display1?.rotation   || 'normal';
+  const d2rot = display2?.rotation   || 'normal';
 
-  cfg.monitors = { display1: { output: d1output, resolution: d1res, rotation: d1rot },
-                   display2: { output: d2output, resolution: d2res, rotation: d2rot } };
+  cfg.monitors = { display1: { output: d1out, resolution: d1res, rotation: d1rot },
+                   display2: { output: d2out, resolution: d2res, rotation: d2rot } };
   writeConfig(cfg);
 
-  // Determine the "other" output name
-  const otherOutputs = ['HDMI-A-1','HDMI-A-2','HDMI-A-3','HDMI-A-4'];
+  // Rewrite sway config with new output assignments
+  const swayConf = `# SignageOS Sway config — auto-generated
+output ${d1out} mode ${d1res.replace('@','Hz@').replace('@','@')}Hz position 0 0 transform ${d1rot}
+output ${d2out} mode ${d2res.replace('@','Hz@').replace('@','@')}Hz position 1920 0 transform ${d2rot}
 
-  const writeWestonIni = (iniPath, activeOutput, resolution, rotation) => {
-    const disabledOutputs = otherOutputs
-      .filter(o => o !== activeOutput)
-      .map(o => `[output]\nname=${o}\nenabled=false`)
-      .join('\n\n');
-    const ini = `[core]
-backend=drm-backend.so
-shell=kiosk-shell.so
-idle-time=0
-repaint-window=8
+workspace 1 output ${d1out}
+workspace 2 output ${d2out}
 
-[output]
-name=${activeOutput}
-mode=${resolution}
-transform=${rotation}
+default_border none
+default_floating_border none
+hide_edge_borders --i3 both
+gaps inner 0
+gaps outer 0
+seat * hide_cursor 3000
+focus_follows_mouse no
 
-${disabledOutputs}
-
-[keyboard]
-keymap_rules=evdev
-keymap_layout=gb
+exec /usr/bin/signaeos-display1
+exec sleep 8 && /usr/bin/signaeos-display2
 `;
-    fs.writeFileSync(iniPath, ini);
-  };
 
   try {
-    writeWestonIni('/etc/weston/weston-d1.ini', d1output, d1res, d1rot);
-    writeWestonIni('/etc/weston/weston-d2.ini', d2output, d2res, d2rot);
-    exec('systemctl restart weston-d1 weston-d2 signaeos-display1 signaeos-display2', err => {
+    fs.mkdirSync('/etc/sway', { recursive: true });
+    fs.writeFileSync('/etc/sway/config', swayConf);
+    exec('systemctl restart sway signaeos-display1 signaeos-display2', err => {
       if (err) return res.json({ ok: false, error: err.message });
       res.json({ ok: true, monitors: cfg.monitors });
     });

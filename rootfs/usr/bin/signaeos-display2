@@ -12,9 +12,9 @@ cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
 
 wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-d2
+  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1
   local n=90
-  while (( n-- > 0 )); do [[ -S "/run/user/0/wayland-d2" ]] && return; sleep 1; done
+  while (( n-- > 0 )); do [[ -S "/run/user/0/wayland-1" ]] && return; sleep 1; done
 }
 
 find_ndiplay() {
@@ -26,23 +26,52 @@ find_ndiplay() {
 
 launch_ndi() {
   local source="$1"
-  local ndiplay; ndiplay=$(find_ndiplay)
   if [[ -n "$NDI_PID" ]] && kill -0 "$NDI_PID" 2>/dev/null; then
     kill "$NDI_PID"; wait "$NDI_PID" 2>/dev/null || true; NDI_PID=""; sleep 1
   fi
-  if [[ -z "$ndiplay" ]] || [[ -z "$source" ]]; then
-    # Show black screen placeholder
-    WAYLAND_DISPLAY=wayland-d2 XDG_RUNTIME_DIR=/run/user/0 \
+
+  # Switch sway to workspace 2 — ensures app lands on HDMI-A-2
+  WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 swaymsg workspace 2 2>/dev/null || true
+  sleep 0.5
+
+  if [[ -z "$source" ]]; then
+    log "No NDI source — showing black screen on workspace 2"
+    WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
     chromium-browser --kiosk --no-sandbox --ozone-platform=wayland \
       --user-data-dir=/data/chromium-d2 \
-      "data:text/html,<body style='background:%23000'></body>" 2>/dev/null &
+      --app="data:text/html,<body style='background:%23000'></body>" 2>/dev/null || \
+    WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
+    chromium --kiosk --no-sandbox --ozone-platform=wayland \
+      --user-data-dir=/data/chromium-d2 \
+      --app="data:text/html,<body style='background:%23000'></body>" &
     NDI_PID=$!
     return
   fi
-  log "NDI → $source"
-  WAYLAND_DISPLAY=wayland-d2 XDG_RUNTIME_DIR=/run/user/0 DISPLAY_OUTPUT="HDMI-A-2" \
-  "$ndiplay" -s "$source" -f &
-  NDI_PID=$!
+
+  log "NDI → $source (workspace 2 / HDMI-A-2)"
+
+  # Try VLC first (best NDI support), fall back to ndiplay
+  if command -v vlc &>/dev/null; then
+    WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
+    vlc --fullscreen --no-osd --no-video-title-show \
+      --qt-minimal-view --no-qt-name-in-title \
+      "ndi://${source}" &
+    NDI_PID=$!
+  else
+    local ndiplay
+    for p in /usr/local/bin/ndiplay /usr/bin/ndiplay; do
+      [[ -x "$p" ]] && ndiplay="$p" && break
+    done
+    if [[ -n "$ndiplay" ]]; then
+      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
+      "$ndiplay" -s "$source" -f &
+      NDI_PID=$!
+    else
+      warn "No NDI player found — install vlc: sudo apt-get install vlc"
+      NDI_PID=""
+    fi
+  fi
+  log "NDI player PID: ${NDI_PID:-none}"
 }
 
 am_request() {

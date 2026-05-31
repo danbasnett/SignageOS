@@ -1,0 +1,23 @@
+[Unit]
+Description=Sway Wayland Compositor
+After=systemd-udevd.service
+Requires=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/user/0
+ExecStartPre=/bin/chmod 0700 /run/user/0
+ExecStart=/usr/bin/sway --config /etc/sway/config
+Restart=always
+RestartSec=3
+User=root
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=XDG_SESSION_TYPE=wayland
+Environment=WLR_NO_HARDWARE_CURSORS=1
+Environment=WLR_RENDERER=pixman
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sway
+
+[Install]
+WantedBy=multi-user.target

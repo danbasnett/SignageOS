@@ -9,7 +9,7 @@ ExecStart=/usr/bin/signaeos-display1
 Restart=always
 RestartSec=5
 Environment=XDG_RUNTIME_DIR=/run/user/0
-Environment=WAYLAND_DISPLAY=wayland-d1
+Environment=WAYLAND_DISPLAY=wayland-1
 Environment=HOME=/root
 StandardOutput=journal
 StandardError=journal

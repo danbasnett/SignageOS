@@ -65,10 +65,10 @@ apply_vlans() {
 }
 
 wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-d1
+  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-1
   local n=60
   while (( n-- > 0 )); do
-    [[ -S "/run/user/0/wayland-d1" ]] && { log "Wayland ready"; return; }
+    [[ -S "/run/user/0/wayland-1" ]] || [[ -S "/run/user/0/sway-ipc"* ]] && { log "Wayland ready"; return; }
     sleep 1
   done
   warn "Wayland not ready after 60s — attempting anyway"
@@ -85,7 +85,10 @@ launch_browser() {
   if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
     kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
   fi
-  log "Launching $browser → $url"
+  log "Launching $browser → $url (workspace 1 / HDMI-A-1)"
+  # Switch to workspace 1 before launching — sway places new windows on current workspace
+  WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 swaymsg workspace 1 2>/dev/null || true
+  sleep 0.5
   local flags=(--kiosk --no-sandbox --noerrdialogs --disable-infobars
     --disable-session-crashed-bubble --no-first-run --disable-pinch
     --autoplay-policy=no-user-gesture-required --disable-background-networking
@@ -94,8 +97,9 @@ launch_browser() {
     --disable-features=TranslateUI,OverscrollHistoryNavigation)
   case "$browser" in
     chromium*)
-      WAYLAND_DISPLAY=wayland-d1 XDG_RUNTIME_DIR=/run/user/0 \
+      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
       chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
+      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
       chromium "${flags[@]}" "$url" &
       ;;
     firefox*)
@@ -105,7 +109,7 @@ user_pref("browser.sessionstore.resume_from_crash", false);
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);
 P
-      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-d1 XDG_RUNTIME_DIR=/run/user/0 \
+      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/0 \
       firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
       ;;
   esac
