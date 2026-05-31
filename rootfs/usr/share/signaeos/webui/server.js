@@ -383,31 +383,28 @@ app.post('/api/network/vlans', (req, res) => {
 
 // ── Test card ──────────────────────────────────────────────────────────────
 app.post('/api/test/:display', (req, res) => {
-  const display = req.params.display;
-  const wayland = process.env.WAYLAND_DISPLAY || 'wayland-1';
-  const xdg     = '/run/user/0';
-  const colors  = ['red','orange','yellow','lime','cyan','blue','violet','white'];
-
-  // Write test card HTML to a temp file — avoids shell quoting issues
+  const display  = req.params.display;
+  const socket   = display === '2' ? 'wayland-d2' : 'wayland-d1';
+  const xdg      = '/run/user/0';
+  const colors   = ['red','orange','yellow','lime','cyan','blue','violet','white'];
   const htmlPath = `/tmp/signaeos-test-d${display}.html`;
+
   const html = `<!DOCTYPE html><html><body style="margin:0;overflow:hidden;background:#000;font-family:sans-serif">
 <div style="display:grid;grid-template-columns:repeat(8,1fr);width:100vw;height:55vh">
 ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 </div>
 <div style="text-align:center;color:white;padding:40px;text-shadow:2px 2px 6px #000">
   <h1 style="font-size:5vw;margin:0 0 16px">SignageOS</h1>
-  <h2 style="font-size:3vw;margin:0 0 12px;color:#aef">Display ${display} Test Card</h2>
+  <h2 style="font-size:3vw;margin:0 0 12px;color:#aef">Display ${display} — ${display === '1' ? 'HDMI-A-1' : 'HDMI-A-2'}</h2>
   <p style="font-size:2vw;margin:0;color:#8f8">Weston + Wayland OK</p>
   <p style="font-size:1.5vw;margin:8px 0 0;color:#888">${new Date().toLocaleTimeString()}</p>
-</div>
-</body></html>`;
+</div></body></html>`;
 
   fs.writeFileSync(htmlPath, html);
 
-  // Kill any existing test card for this display
   exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
     const cmd = [
-      `WAYLAND_DISPLAY=${wayland}`,
+      `WAYLAND_DISPLAY=${socket}`,
       `XDG_RUNTIME_DIR=${xdg}`,
       'chromium',
       '--kiosk',
@@ -433,6 +430,73 @@ app.post('/api/test/stop', (req, res) => {
       res.json({ ok: true });
     });
   });
+});
+
+// ── Monitor configuration ──────────────────────────────────────────────────
+// GET /api/monitors — current config
+app.get('/api/monitors', (req, res) => {
+  const cfg = readConfig();
+  res.json({ ok: true, monitors: cfg.monitors || {
+    display1: { output: 'HDMI-A-1', resolution: '1920x1080@60', rotation: 'normal' },
+    display2: { output: 'HDMI-A-2', resolution: '1920x1080@60', rotation: 'normal' }
+  }});
+});
+
+// POST /api/monitors — update monitor config, rewrite weston.ini files, restart
+app.post('/api/monitors', (req, res) => {
+  const { display1, display2, swap } = req.body;
+  const cfg = readConfig();
+
+  // If swap=true, exchange the output assignments
+  let d1output = swap ? 'HDMI-A-2' : (display1?.output || 'HDMI-A-1');
+  let d2output = swap ? 'HDMI-A-1' : (display2?.output || 'HDMI-A-2');
+  const d1res  = display1?.resolution || '1920x1080@60';
+  const d2res  = display2?.resolution || '1920x1080@60';
+  const d1rot  = display1?.rotation   || 'normal';
+  const d2rot  = display2?.rotation   || 'normal';
+
+  cfg.monitors = { display1: { output: d1output, resolution: d1res, rotation: d1rot },
+                   display2: { output: d2output, resolution: d2res, rotation: d2rot } };
+  writeConfig(cfg);
+
+  // Determine the "other" output name
+  const otherOutputs = ['HDMI-A-1','HDMI-A-2','HDMI-A-3','HDMI-A-4'];
+
+  const writeWestonIni = (iniPath, activeOutput, resolution, rotation) => {
+    const disabledOutputs = otherOutputs
+      .filter(o => o !== activeOutput)
+      .map(o => `[output]\nname=${o}\nenabled=false`)
+      .join('\n\n');
+    const ini = `[core]
+backend=drm-backend.so
+shell=kiosk-shell.so
+idle-time=0
+repaint-window=8
+
+[output]
+name=${activeOutput}
+mode=${resolution}
+transform=${rotation}
+
+${disabledOutputs}
+
+[keyboard]
+keymap_rules=evdev
+keymap_layout=gb
+`;
+    fs.writeFileSync(iniPath, ini);
+  };
+
+  try {
+    writeWestonIni('/etc/weston/weston-d1.ini', d1output, d1res, d1rot);
+    writeWestonIni('/etc/weston/weston-d2.ini', d2output, d2res, d2rot);
+    exec('systemctl restart weston-d1 weston-d2 signaeos-display1 signaeos-display2', err => {
+      if (err) return res.json({ ok: false, error: err.message });
+      res.json({ ok: true, monitors: cfg.monitors });
+    });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
 });
 // Proxy to local Satellite API to avoid CORS issues from the browser
 function satelliteRequest(path) {

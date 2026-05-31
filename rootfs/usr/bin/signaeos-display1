@@ -65,10 +65,10 @@ apply_vlans() {
 }
 
 wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-0
+  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-d1
   local n=60
   while (( n-- > 0 )); do
-    [[ -S "/run/user/0/wayland-0" ]] && { log "Wayland ready"; return; }
+    [[ -S "/run/user/0/wayland-d1" ]] && { log "Wayland ready"; return; }
     sleep 1
   done
   warn "Wayland not ready after 60s — attempting anyway"
@@ -94,7 +94,7 @@ launch_browser() {
     --disable-features=TranslateUI,OverscrollHistoryNavigation)
   case "$browser" in
     chromium*)
-      WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
+      WAYLAND_DISPLAY=wayland-d1 XDG_RUNTIME_DIR=/run/user/0 \
       chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
       chromium "${flags[@]}" "$url" &
       ;;
@@ -105,7 +105,7 @@ user_pref("browser.sessionstore.resume_from_crash", false);
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);
 P
-      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
+      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-d1 XDG_RUNTIME_DIR=/run/user/0 \
       firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
       ;;
   esac

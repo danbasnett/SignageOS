@@ -1,0 +1,21 @@
+[Unit]
+Description=Weston Compositor — Display 1 (HDMI-A-1)
+After=systemd-udevd.service
+Requires=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/user/0
+ExecStartPre=/bin/chmod 0700 /run/user/0
+ExecStart=/usr/bin/weston --config=/etc/weston/weston-d1.ini --socket=wayland-d1
+Restart=always
+RestartSec=3
+User=root
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=XDG_SESSION_TYPE=drm
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=weston-d1
+
+[Install]
+WantedBy=multi-user.target

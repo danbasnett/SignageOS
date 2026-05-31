@@ -96,6 +96,7 @@ pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;backg
   <a href="#"            data-s="network" onclick="go(this)"><span class="ico">📡</span>Network & VLANs</a>
   <a href="#"            data-s="stream"  onclick="go(this)"><span class="ico">🎛️</span>Stream Deck</a>
   <div class="grp">Device</div>
+  <a href="#"            data-s="monitors" onclick="go(this)"><span class="ico">🖥️</span>Monitors</a>
   <a href="#"            data-s="system"  onclick="go(this)"><span class="ico">⚙️</span>System</a>
 </nav>
 <main>
@@ -285,6 +286,69 @@ pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;backg
   </div>
 </section>
 
+<!-- ── Monitors ── -->
+<section class="sec" id="s-monitors">
+  <h2>Monitors</h2>
+  <p class="sub">Configure which physical HDMI port is used for each display, resolution, and rotation.</p>
+  <div class="card">
+    <h3>Display Assignment</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:16px">
+      On Raspberry Pi 4/5: HDMI-A-1 is the port closest to the USB-C power connector, HDMI-A-2 is the other one.
+    </p>
+    <div class="row2">
+      <div class="card" style="margin:0">
+        <h3>Display 1 — Web</h3>
+        <div class="field"><label>HDMI Output</label>
+          <select id="d1-output">
+            <option value="HDMI-A-1">HDMI-A-1</option>
+            <option value="HDMI-A-2">HDMI-A-2</option>
+          </select></div>
+        <div class="field"><label>Resolution</label>
+          <select id="d1-res">
+            <option value="1920x1080@60">1920×1080 @ 60Hz</option>
+            <option value="1920x1080@50">1920×1080 @ 50Hz</option>
+            <option value="3840x2160@30">3840×2160 @ 30Hz (4K)</option>
+            <option value="1280x720@60">1280×720 @ 60Hz</option>
+          </select></div>
+        <div class="field"><label>Rotation</label>
+          <select id="d1-rot">
+            <option value="normal">Normal</option>
+            <option value="rotate-90">90°</option>
+            <option value="rotate-180">180°</option>
+            <option value="rotate-270">270°</option>
+          </select></div>
+      </div>
+      <div class="card" style="margin:0">
+        <h3>Display 2 — NDI</h3>
+        <div class="field"><label>HDMI Output</label>
+          <select id="d2-output">
+            <option value="HDMI-A-2">HDMI-A-2</option>
+            <option value="HDMI-A-1">HDMI-A-1</option>
+          </select></div>
+        <div class="field"><label>Resolution</label>
+          <select id="d2-res">
+            <option value="1920x1080@60">1920×1080 @ 60Hz</option>
+            <option value="1920x1080@50">1920×1080 @ 50Hz</option>
+            <option value="3840x2160@30">3840×2160 @ 30Hz (4K)</option>
+            <option value="1280x720@60">1280×720 @ 60Hz</option>
+          </select></div>
+        <div class="field"><label>Rotation</label>
+          <select id="d2-rot">
+            <option value="normal">Normal</option>
+            <option value="rotate-90">90°</option>
+            <option value="rotate-180">180°</option>
+            <option value="rotate-270">270°</option>
+          </select></div>
+      </div>
+    </div>
+    <div class="acts" style="margin-top:16px">
+      <button class="btn primary" onclick="saveMonitors()">Apply — Restarts Displays</button>
+      <button class="btn ghost" onclick="swapMonitors()">⇄ Swap Displays</button>
+    </div>
+    <p style="font-size:11px;color:var(--m);margin-top:10px">Applying will briefly restart both displays.</p>
+  </div>
+</section>
+
 <!-- ── System ── -->
 <section class="sec" id="s-system">
   <h2>System</h2><p class="sub">Device info, SSH, OTA updates.</p>
@@ -334,9 +398,10 @@ function go(el) {
   document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
   el.classList.add('on');
   document.getElementById('s-' + el.dataset.s).classList.add('on');
-  if (el.dataset.s === 'system') loadSystem();
-  if (el.dataset.s === 'ndi-am') { renderNdiDevices(); renderManualSources(); }
-  if (el.dataset.s === 'stream') loadSurfaces();
+  if (el.dataset.s === 'system')   loadSystem();
+  if (el.dataset.s === 'ndi-am')  { renderNdiDevices(); renderManualSources(); }
+  if (el.dataset.s === 'stream')  loadSurfaces();
+  if (el.dataset.s === 'monitors') loadMonitors();
 }
 
 function toast(msg, type='ok') {
@@ -677,7 +742,47 @@ async function saveSsh() {
   r.ok ? toast('SSH keys saved!') : toast('Error: ' + r.error, 'err');
 }
 
-// ── Connected Surfaces ────────────────────────────────────────────────────
+// ── Monitor config ─────────────────────────────────────────────────────────
+async function loadMonitors() {
+  const r = await api('GET', '/api/monitors');
+  if (!r.ok) return;
+  const m = r.monitors;
+  setSelect('d1-output', m.display1?.output    || 'HDMI-A-1');
+  setSelect('d1-res',    m.display1?.resolution || '1920x1080@60');
+  setSelect('d1-rot',    m.display1?.rotation   || 'normal');
+  setSelect('d2-output', m.display2?.output    || 'HDMI-A-2');
+  setSelect('d2-res',    m.display2?.resolution || '1920x1080@60');
+  setSelect('d2-rot',    m.display2?.rotation   || 'normal');
+}
+
+function setSelect(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  for (const opt of el.options) {
+    if (opt.value === val) { el.value = val; return; }
+  }
+}
+
+async function saveMonitors() {
+  const body = {
+    display1: { output: document.getElementById('d1-output').value,
+                resolution: document.getElementById('d1-res').value,
+                rotation: document.getElementById('d1-rot').value },
+    display2: { output: document.getElementById('d2-output').value,
+                resolution: document.getElementById('d2-res').value,
+                rotation: document.getElementById('d2-rot').value }
+  };
+  toast('Applying monitor config — displays will restart…');
+  const r = await api('POST', '/api/monitors', body);
+  r.ok ? toast('Monitor config applied!') : toast('Error: ' + r.error, 'err');
+}
+
+async function swapMonitors() {
+  toast('Swapping displays…');
+  const r = await api('POST', '/api/monitors', { swap: true });
+  if (r.ok) { toast('Displays swapped!'); loadMonitors(); }
+  else toast('Error: ' + r.error, 'err');
+}
 async function loadSurfaces() {
   const el = document.getElementById('surfaces-list');
   el.innerHTML = '<span style="font-size:12px;color:var(--m)">Checking…</span>';

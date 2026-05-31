@@ -12,9 +12,9 @@ cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
 
 wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-0
+  export XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-d2
   local n=90
-  while (( n-- > 0 )); do [[ -S "/run/user/0/wayland-0" ]] && return; sleep 1; done
+  while (( n-- > 0 )); do [[ -S "/run/user/0/wayland-d2" ]] && return; sleep 1; done
 }
 
 find_ndiplay() {
@@ -32,7 +32,7 @@ launch_ndi() {
   fi
   if [[ -z "$ndiplay" ]] || [[ -z "$source" ]]; then
     # Show black screen placeholder
-    WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
+    WAYLAND_DISPLAY=wayland-d2 XDG_RUNTIME_DIR=/run/user/0 \
     chromium-browser --kiosk --no-sandbox --ozone-platform=wayland \
       --user-data-dir=/data/chromium-d2 \
       "data:text/html,<body style='background:%23000'></body>" 2>/dev/null &
@@ -40,7 +40,7 @@ launch_ndi() {
     return
   fi
   log "NDI → $source"
-  WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 DISPLAY_OUTPUT="HDMI-A-2" \
+  WAYLAND_DISPLAY=wayland-d2 XDG_RUNTIME_DIR=/run/user/0 DISPLAY_OUTPUT="HDMI-A-2" \
   "$ndiplay" -s "$source" -f &
   NDI_PID=$!
 }
