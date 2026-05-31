@@ -309,6 +309,14 @@ pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;backg
     </div>
     <pre class="out" id="upd-out"></pre>
   </div>
+  <div class="card"><h3>Display Test</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:12px">Send a test card to each output to verify the display pipeline is working.</p>
+    <div class="acts">
+      <button class="btn ghost" onclick="testCard('1')">🖥️ Test Display 1</button>
+      <button class="btn ghost" onclick="testCard('2')">📺 Test Display 2</button>
+    </div>
+    <div id="test-result" style="margin-top:10px;font-size:12px;color:var(--m)"></div>
+  </div>
   <div class="card"><h3>Danger Zone</h3>
     <div class="acts"><button class="btn danger" onclick="if(confirm('Reboot now?'))reboot()">Reboot</button></div>
   </div>
@@ -764,6 +772,19 @@ async function applyUpdate() {
   const r = await api('POST', '/api/update/apply'); o.textContent = r.output||'';
   r.ok ? toast('Applied — reboot to activate') : toast('Failed', 'err');
 }
+async function testCard(display) {
+  const el = document.getElementById('test-result');
+  el.textContent = `Sending test card to Display ${display}…`;
+  const r = await api('POST', `/api/test/${display}`);
+  if (r.ok) {
+    el.textContent = `✓ Test card sent to Display ${display} — check the monitor`;
+    el.style.color = 'var(--g)';
+  } else {
+    el.textContent = `✗ Failed: ${r.error}`;
+    el.style.color = 'var(--r)';
+  }
+}
+
 async function reboot() { toast('Rebooting…'); await api('POST', '/api/reboot'); }
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
