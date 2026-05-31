@@ -427,7 +427,13 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
   });
 });
 
-// ── Companion Satellite proxy ──────────────────────────────────────────────
+app.post('/api/test/stop', (req, res) => {
+  exec('pkill -f "chromium-test-d" 2>/dev/null; true', () => {
+    exec('systemctl restart signaeos-display1 signaeos-display2 2>/dev/null; true', () => {
+      res.json({ ok: true });
+    });
+  });
+});
 // Proxy to local Satellite API to avoid CORS issues from the browser
 function satelliteRequest(path) {
   return new Promise(resolve => {

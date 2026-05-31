@@ -310,10 +310,11 @@ pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;backg
     <pre class="out" id="upd-out"></pre>
   </div>
   <div class="card"><h3>Display Test</h3>
-    <p style="font-size:12px;color:var(--m);margin-bottom:12px">Send a test card to each output to verify the display pipeline is working.</p>
+    <p style="font-size:12px;color:var(--m);margin-bottom:12px">Send a test card to verify the display pipeline. With one monitor connected both will show on the same screen — they'll split when a second monitor is connected.</p>
     <div class="acts">
       <button class="btn ghost" onclick="testCard('1')">🖥️ Test Display 1</button>
       <button class="btn ghost" onclick="testCard('2')">📺 Test Display 2</button>
+      <button class="btn danger" onclick="stopTest()">✕ Stop Test</button>
     </div>
     <div id="test-result" style="margin-top:10px;font-size:12px;color:var(--m)"></div>
   </div>
@@ -772,6 +773,20 @@ async function applyUpdate() {
   const r = await api('POST', '/api/update/apply'); o.textContent = r.output||'';
   r.ok ? toast('Applied — reboot to activate') : toast('Failed', 'err');
 }
+async function stopTest() {
+  const el = document.getElementById('test-result');
+  el.textContent = 'Stopping test cards…';
+  el.style.color = 'var(--m)';
+  const r = await api('POST', '/api/test/stop');
+  if (r.ok) {
+    el.textContent = '✓ Test stopped — normal output restored';
+    el.style.color = 'var(--g)';
+  } else {
+    el.textContent = '✗ ' + r.error;
+    el.style.color = 'var(--r)';
+  }
+}
+
 async function testCard(display) {
   const el = document.getElementById('test-result');
   el.textContent = `Sending test card to Display ${display}…`;
