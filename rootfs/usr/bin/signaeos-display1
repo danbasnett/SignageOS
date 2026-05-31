@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # signaeos-display1 — Chromium kiosk on workspace 1 (HDMI-A-1)
+# Uses a kiosk proxy page — Chromium launches ONCE and never restarts for URL changes.
+# URL switching is handled by the proxy page polling /api/display/1/status
 set -euo pipefail
 
 CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display1.sock"
 BROWSER_PID=""
+KIOSK_URL="http://localhost:3000/kiosk/display1"
 export XDG_RUNTIME_DIR="/run/user/1000"
 export WAYLAND_DISPLAY="wayland-1"
 
@@ -13,150 +16,105 @@ warn() { logger -t "signaeos-display1" -- "WARN: $*"; }
 cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
 
-sway_exec() {
-  # Atomically launch a command on a specific workspace via swaymsg
-  local workspace="$1"; shift
-  local cmd="$*"
-  local sock
-  sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
-  if [[ -n "$sock" ]]; then
-    SWAYSOCK="$sock" swaymsg "workspace ${workspace}; exec ${cmd}" 2>/dev/null || true
-    return 0
-  fi
-  # Fallback: launch directly
-  eval "$cmd" &
+sway_cmd() {
+  local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+  [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
 }
 
-ensure_config() {
-  mkdir -p /data/signaeos
-  [[ -f "$CONFIG" ]] && return
-  cat > "$CONFIG" <<'JSON'
-{
-  "role": "both",
-  "display_name": "SignageOS",
-  "display1": {
-    "browser": "chromium",
-    "current_index": 0,
-    "urls": [{ "label": "Setup", "url": "http://localhost:3000" }]
-  },
-  "display2": { "current_source": "", "sources": [] },
-  "ndi": { "devices": [], "discovery_server": "", "manual_sources": [] },
-  "companion": { "server_ip": "", "server_port": 16622 },
-  "network": { "hostname": "signaeos", "native_vlan": "", "vlans": [], "wifi_ssid": "", "wifi_password": "" },
-  "ssh": { "authorized_keys": "" }
-}
-JSON
-}
-
-wait_sway() {
-  log "Waiting for Wayland socket..."
+wait_display() {
+  log "Waiting for Wayland..."
   local n=60
   while (( n-- > 0 )); do
     [[ -S "/run/user/1000/wayland-1" ]] && { log "Wayland ready"; return 0; }
     sleep 1
   done
-  warn "Wayland not ready after 60s — attempting anyway"
-}
-
-current_url() {
-  local idx; idx=$(cfg '.display1.current_index' "0")
-  cfg ".display1.urls[$idx].url" "http://localhost:3000"
+  warn "Wayland not ready — continuing anyway"
 }
 
 launch_browser() {
-  local url="$1"
-  local browser; browser=$(cfg '.display1.browser' "chromium")
-
-  # Kill existing
-  if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
-    kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
-  fi
-
-  log "Launching $browser → $url (workspace 1)"
-
-  # Kill existing
-  if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
-    kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
-  fi
-
-  # Clean stale singleton locks
-  rm -f /data/chromium-profile/SingletonLock /data/chromium-profile/SingletonSocket \
+  # Clean stale locks
+  rm -f /data/chromium-profile/SingletonLock \
+        /data/chromium-profile/SingletonSocket \
         /data/chromium-profile/SingletonCookie 2>/dev/null || true
 
-  log "Launching $browser → $url (workspace 1)"
+  log "Launching Chromium kiosk → $KIOSK_URL"
 
   # Switch to workspace 1 before launch
-  local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
-  [[ -n "$sock" ]] && SWAYSOCK="$sock" WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-    swaymsg "workspace 1" 2>/dev/null || true
+  sway_cmd "workspace 1"
   sleep 0.5
 
-  case "$browser" in
-    chromium*)
-      # Use chromium directly (not chromium-browser wrapper which reorders flags)
-      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-      chromium \
-        --kiosk \
-        --no-sandbox \
-        --noerrdialogs \
-        --disable-infobars \
-        --disable-session-crashed-bubble \
-        --no-first-run \
-        --disable-pinch \
-        --autoplay-policy=no-user-gesture-required \
-        --disable-background-networking \
-        --disable-sync \
-        --no-default-browser-check \
-        --password-store=basic \
-        --user-data-dir=/data/chromium-profile \
-        --ozone-platform=wayland \
-        --disable-features=TranslateUI,OverscrollHistoryNavigation \
-        "$url" &
-      BROWSER_PID=$!
-      ;;
-    firefox*)
-      mkdir -p /data/firefox-profile
-      [[ ! -f /data/firefox-profile/user.js ]] && cat > /data/firefox-profile/user.js <<'P'
-user_pref("browser.sessionstore.resume_from_crash", false);
-user_pref("browser.shell.checkDefaultBrowser", false);
-user_pref("datareporting.policy.dataSubmissionEnabled", false);
-P
-      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-      firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
-      BROWSER_PID=$!
-      ;;
-  esac
+  WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
+  chromium \
+    --kiosk \
+    --start-fullscreen \
+    --no-sandbox \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --no-first-run \
+    --disable-pinch \
+    --autoplay-policy=no-user-gesture-required \
+    --disable-background-networking \
+    --disable-sync \
+    --no-default-browser-check \
+    --password-store=basic \
+    --user-data-dir=/data/chromium-profile \
+    --ozone-platform=wayland \
+    --disable-features=TranslateUI,OverscrollHistoryNavigation \
+    "$KIOSK_URL" &
+  BROWSER_PID=$!
   log "Browser PID: $BROWSER_PID"
-}
 
-switch_url() {
-  local idx="$1"
-  local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-  (( idx < 0 || idx >= total )) && echo '{"ok":false,"error":"index out of range"}' && return
-  cfg_set '.display1.current_index' "$idx"
-  launch_browser "$(cfg ".display1.urls[$idx].url" "http://localhost:3000")"
-  echo '{"ok":true}'
+  # Force fullscreen after Chromium initialises
+  sleep 3
+  sway_cmd '[app_id="chromium"] fullscreen enable'
 }
 
 handle_command() {
   local line; read -r -t 10 line || { echo '{"ok":false,"error":"timeout"}'; return; }
-  local cmd cur total
-  cmd=$(echo "$line" | jq -r '.cmd' 2>/dev/null || echo "")
+  local cmd; cmd=$(echo "$line" | jq -r '.cmd' 2>/dev/null || echo "")
   case "$cmd" in
-    switch) switch_url "$(echo "$line" | jq -r '.index // 0')" ;;
+    switch)
+      # Just update config — kiosk proxy page picks it up within 1 second
+      local idx; idx=$(echo "$line" | jq -r '.index // 0')
+      local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      if (( idx < 0 || idx >= total )); then
+        echo '{"ok":false,"error":"index out of range"}'; return
+      fi
+      cfg_set '.display1.current_index' "$idx"
+      echo '{"ok":true}'
+      ;;
     next)
+      local cur total
       cur=$(cfg '.display1.current_index' "0")
       total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-      switch_url $(( (cur + 1) % total )) ;;
+      local next=$(( (cur + 1) % total ))
+      cfg_set '.display1.current_index' "$next"
+      echo '{"ok":true}'
+      ;;
     prev)
+      local cur total
       cur=$(cfg '.display1.current_index' "0")
       total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-      switch_url $(( (cur - 1 + total) % total )) ;;
-    reload) launch_browser "$(current_url)"; echo '{"ok":true}' ;;
+      local prev=$(( (cur - 1 + total) % total ))
+      cfg_set '.display1.current_index' "$prev"
+      echo '{"ok":true}'
+      ;;
+    reload)
+      # Kill and relaunch browser if needed
+      if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
+        kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""
+      fi
+      launch_browser
+      echo '{"ok":true}'
+      ;;
     status)
       local idx; idx=$(cfg '.display1.current_index' "0")
-      total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-      echo "{\"ok\":true,\"display\":1,\"index\":$idx,\"label\":\"$(cfg ".display1.urls[$idx].label" "")\",\"url\":\"$(cfg ".display1.urls[$idx].url" "")\",\"total\":$total}" ;;
+      local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      local url; url=$(cfg ".display1.urls[$idx].url" "")
+      local label; label=$(cfg ".display1.urls[$idx].label" "")
+      echo "{\"ok\":true,\"display\":1,\"index\":$idx,\"label\":\"$label\",\"url\":\"$url\",\"total\":$total}"
+      ;;
     *) echo '{"ok":false,"error":"unknown command"}' ;;
   esac
 }
@@ -164,8 +122,8 @@ handle_command() {
 [[ "${1:-}" == "--handle-command" ]] && { handle_command; exit 0; }
 
 log "Display 1 starting"
-ensure_config
-wait_sway
+wait_display
+
 mkdir -p /run/signaeos
 rm -f "$SOCKET"
 while true; do
@@ -175,11 +133,12 @@ done &
 role=$(cfg '.role' "both")
 [[ "$role" == "ndi" ]] && { log "Role=ndi, display1 inactive"; sleep infinity; }
 
-launch_browser "$(current_url)"
+launch_browser
+
 while true; do
   sleep 15
   if [[ -n "$BROWSER_PID" ]] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
     warn "Browser died — restarting"; BROWSER_PID=""; sleep 2
-    launch_browser "$(current_url)"
+    launch_browser
   fi
 done

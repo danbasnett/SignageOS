@@ -229,7 +229,38 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Config
+// ── Kiosk proxy page — loaded once by Chromium, navigates via iframe ───────
+// Chromium always loads this page. It shows content in a fullscreen iframe
+// and polls every second for URL changes, switching the iframe src when needed.
+// This avoids killing/relaunching Chromium for URL changes (no tab bar flash).
+app.get('/kiosk/display1', (req, res) => {
+  const cfg = readConfig();
+  const idx = cfg.display1?.current_index || 0;
+  const url = cfg.display1?.urls?.[idx]?.url || 'http://localhost:3000';
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>*{margin:0;padding:0}html,body,iframe{width:100%;height:100%;border:none;display:block;overflow:hidden;background:#000}</style>
+</head><body>
+<iframe id="f" src="${url.replace(/"/g,'&quot;')}" allowfullscreen></iframe>
+<script>
+var current = ${JSON.stringify(url)};
+function poll() {
+  fetch('/api/display/1/status')
+    .then(function(r){return r.json();})
+    .then(function(s){
+      if(s.url && s.url !== current) {
+        current = s.url;
+        document.getElementById('f').src = s.url;
+      }
+    })
+    .catch(function(){});
+  setTimeout(poll, 1000);
+}
+setTimeout(poll, 1000);
+</script>
+</body></html>`);
+});
 app.get('/api/config', (req, res) => {
   const cfg = readConfig();
   const safe = JSON.parse(JSON.stringify(cfg));
@@ -249,7 +280,16 @@ app.post('/api/config', async (req, res) => {
 });
 
 // Display 1
-app.get ('/api/display/1/status',        async (req, res) => res.json(await d1({ cmd: 'status' })));
+app.get ('/api/display/1/status', async (req, res) => {
+  const cfg = readConfig();
+  const idx = cfg.display1?.current_index || 0;
+  const url = cfg.display1?.urls?.[idx]?.url || '';
+  const label = cfg.display1?.urls?.[idx]?.label || '';
+  const total = (cfg.display1?.urls || []).length;
+  // Also try socket for live status
+  const live = await d1({ cmd: 'status' }).catch(() => ({}));
+  res.json({ ok: true, display: 1, index: idx, url, label, total, ...live });
+});
 app.post('/api/display/1/switch/:index', async (req, res) => {
   const idx = parseInt(req.params.index, 10);
   const r = await d1({ cmd: 'switch', index: idx });
@@ -435,7 +475,7 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 });
 
 app.post('/api/test/stop', (req, res) => {
-  exec('pkill -f "user-data-dir=/data/chromium-test" 2>/dev/null; true', () => {
+  exec('pkill -9 -f "user-data-dir=/data/chromium-test" 2>/dev/null; true', () => {
     exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
       res.json({ ok: true });
     });
