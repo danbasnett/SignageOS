@@ -1,25 +1,30 @@
 #!/usr/bin/env bash
 # signaeos-display1 — Chromium kiosk on workspace 1 (HDMI-A-1)
-# Runs as admin user under sway
 set -euo pipefail
 
 CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display1.sock"
 BROWSER_PID=""
-XDG_RUNTIME_DIR="/run/user/1000"
-WAYLAND_DISPLAY="wayland-1"
-
-export XDG_RUNTIME_DIR WAYLAND_DISPLAY
+export XDG_RUNTIME_DIR="/run/user/1000"
+export WAYLAND_DISPLAY="wayland-1"
 
 log()  { logger -t "signaeos-display1" -- "$*"; echo "[$(date '+%H:%M:%S')] [d1] $*"; }
 warn() { logger -t "signaeos-display1" -- "WARN: $*"; }
 cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
 
-sway_msg() {
+sway_exec() {
+  # Atomically launch a command on a specific workspace via swaymsg
+  local workspace="$1"; shift
+  local cmd="$*"
   local sock
   sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
-  [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
+  if [[ -n "$sock" ]]; then
+    SWAYSOCK="$sock" swaymsg "workspace ${workspace}; exec ${cmd}" 2>/dev/null || true
+    return 0
+  fi
+  # Fallback: launch directly
+  eval "$cmd" &
 }
 
 ensure_config() {
@@ -44,17 +49,13 @@ JSON
 }
 
 wait_sway() {
-  log "Waiting for sway..."
+  log "Waiting for Wayland socket..."
   local n=60
   while (( n-- > 0 )); do
-    [[ -S "/run/user/1000/wayland-1" ]] && \
-    ls /run/user/1000/sway-ipc.*.sock &>/dev/null 2>&1 && {
-      log "Sway ready"
-      return 0
-    }
+    [[ -S "/run/user/1000/wayland-1" ]] && { log "Wayland ready"; return 0; }
     sleep 1
   done
-  warn "Sway not ready after 60s — attempting anyway"
+  warn "Wayland not ready after 60s — attempting anyway"
 }
 
 current_url() {
@@ -66,11 +67,12 @@ launch_browser() {
   local url="$1"
   local browser; browser=$(cfg '.display1.browser' "chromium")
 
+  # Kill existing
   if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
     kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""; sleep 1
   fi
 
-  log "Launching $browser → $url"
+  log "Launching $browser → $url (workspace 1)"
 
   local flags=(
     --kiosk
@@ -88,15 +90,25 @@ launch_browser() {
     --user-data-dir=/data/chromium-profile
     --ozone-platform=wayland
     --disable-features=TranslateUI,OverscrollHistoryNavigation
-    --app-id=signaeos-display1
+    --class=signaeos-display1
   )
 
   case "$browser" in
     chromium*)
+      # Use swaymsg exec for guaranteed workspace placement
+      local sock
+      sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+      local cmd="chromium-browser ${flags[*]} '$url' || chromium ${flags[*]} '$url'"
+      if [[ -n "$sock" ]]; then
+        SWAYSOCK="$sock" WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
+          swaymsg "workspace 1" 2>/dev/null || true
+        sleep 0.3
+      fi
       WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-      chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
+        chromium-browser "${flags[@]}" "$url" 2>/dev/null || \
       WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-      chromium "${flags[@]}" "$url" &
+        chromium "${flags[@]}" "$url" &
+      BROWSER_PID=$!
       ;;
     firefox*)
       mkdir -p /data/firefox-profile
@@ -106,10 +118,10 @@ user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);
 P
       MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-      firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
+        firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
+      BROWSER_PID=$!
       ;;
   esac
-  BROWSER_PID=$!
   log "Browser PID: $BROWSER_PID"
 }
 
@@ -157,10 +169,9 @@ while true; do
 done &
 
 role=$(cfg '.role' "both")
-if [[ "$role" == "ndi" ]]; then log "Role=ndi, display1 inactive"; sleep infinity; fi
+[[ "$role" == "ndi" ]] && { log "Role=ndi, display1 inactive"; sleep infinity; }
 
 launch_browser "$(current_url)"
-
 while true; do
   sleep 15
   if [[ -n "$BROWSER_PID" ]] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then

@@ -451,25 +451,51 @@ app.get('/api/monitors', (req, res) => {
 app.post('/api/monitors', (req, res) => {
   const { display1, display2, swap } = req.body;
   const cfg = readConfig();
+  const saved = cfg.monitors || {};
 
-  let d1out = swap ? 'HDMI-A-2' : (display1?.output || 'HDMI-A-1');
-  let d2out = swap ? 'HDMI-A-1' : (display2?.output || 'HDMI-A-2');
-  const d1res = display1?.resolution || '1920x1080@60';
-  const d2res = display2?.resolution || '1920x1080@60';
-  const d1rot = display1?.rotation   || 'normal';
-  const d2rot = display2?.rotation   || 'normal';
+  // For swap, flip the saved output assignments
+  let d1out, d2out, d1res, d2res, d1rot, d2rot;
+  if (swap) {
+    d1out = saved.display2?.output    || 'HDMI-A-2';
+    d2out = saved.display1?.output    || 'HDMI-A-1';
+    d1res = saved.display1?.resolution || '1920x1080@60';
+    d2res = saved.display2?.resolution || '1920x1080@60';
+    d1rot = saved.display1?.rotation   || 'normal';
+    d2rot = saved.display2?.rotation   || 'normal';
+  } else {
+    d1out = display1?.output     || saved.display1?.output    || 'HDMI-A-1';
+    d2out = display2?.output     || saved.display2?.output    || 'HDMI-A-2';
+    d1res = display1?.resolution || saved.display1?.resolution || '1920x1080@60';
+    d2res = display2?.resolution || saved.display2?.resolution || '1920x1080@60';
+    d1rot = display1?.rotation   || saved.display1?.rotation   || 'normal';
+    d2rot = display2?.rotation   || saved.display2?.rotation   || 'normal';
+  }
 
   cfg.monitors = { display1: { output: d1out, resolution: d1res, rotation: d1rot },
                    display2: { output: d2out, resolution: d2res, rotation: d2rot } };
   writeConfig(cfg);
 
-  // Rewrite sway config with new output assignments
+  // Convert resolution to sway mode format: 1920x1080@60 → 1920x1080@60Hz
+  const toMode = r => r.includes('Hz') ? r : r.replace(/@(\d+(\.\d+)?)$/, '@$1Hz');
+  const d1mode = toMode(d1res);
+  const d2mode = toMode(d2res);
+
   const swayConf = `# SignageOS Sway config — auto-generated
-output ${d1out} mode ${d1res.replace('@','Hz@').replace('@','@')}Hz position 0 0 transform ${d1rot}
-output ${d2out} mode ${d2res.replace('@','Hz@').replace('@','@')}Hz position 1920 0 transform ${d2rot}
+output ${d1out} enable mode ${d1mode} position 0 0 transform ${d1rot}
+output ${d2out} enable mode ${d2mode} position 1920 0 transform ${d2rot}
 
 workspace 1 output ${d1out}
 workspace 2 output ${d2out}
+
+assign [app_id="signaeos-display1"] workspace 1
+assign [app_id="signaeos-display2"] workspace 2
+assign [app_id="signaeos-test-d1"]  workspace 1
+assign [app_id="signaeos-test-d2"]  workspace 2
+
+for_window [app_id="signaeos-display1"] fullscreen enable
+for_window [app_id="signaeos-display2"] fullscreen enable
+for_window [app_id="signaeos-test-d1"]  fullscreen enable
+for_window [app_id="signaeos-test-d2"]  fullscreen enable
 
 default_border none
 default_floating_border none
@@ -478,18 +504,24 @@ gaps inner 0
 gaps outer 0
 seat * hide_cursor 3000
 focus_follows_mouse no
-
-exec /usr/bin/signaeos-display1
-exec sleep 8 && /usr/bin/signaeos-display2
 `;
 
   try {
     fs.mkdirSync('/etc/sway', { recursive: true });
     fs.writeFileSync('/etc/sway/config', swayConf);
-    exec('systemctl restart sway signaeos-display1 signaeos-display2', err => {
-      if (err) return res.json({ ok: false, error: err.message });
-      res.json({ ok: true, monitors: cfg.monitors });
-    });
+    // Use swaymsg reload — reconfigures outputs without restarting sway
+    const sock = execSync('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', { encoding: 'utf8' }).trim();
+    if (sock) {
+      exec(`SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg reload`, () => {
+        exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
+          res.json({ ok: true, monitors: cfg.monitors });
+        });
+      });
+    } else {
+      exec('systemctl restart sway && sleep 5 && systemctl restart signaeos-display1 signaeos-display2', err => {
+        res.json({ ok: !err, monitors: cfg.monitors });
+      });
+    }
   } catch (e) {
     res.json({ ok: false, error: e.message });
   }

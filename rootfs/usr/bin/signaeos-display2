@@ -23,14 +23,13 @@ sway_msg() {
 }
 
 wait_sway() {
-  log "Waiting for sway..."
+  log "Waiting for Wayland socket..."
   local n=90
   while (( n-- > 0 )); do
-    [[ -S "/run/user/1000/wayland-1" ]] && \
-    ls /run/user/1000/sway-ipc.*.sock &>/dev/null 2>&1 && return 0
+    [[ -S "/run/user/1000/wayland-1" ]] && { log "Wayland ready"; return 0; }
     sleep 1
   done
-  warn "Sway not ready after 90s"
+  warn "Wayland not ready after 90s"
 }
 
 launch_ndi() {
@@ -41,14 +40,18 @@ launch_ndi() {
 
   if [[ -z "$source" ]]; then
     log "No NDI source — black screen on workspace 2"
+    # Switch to workspace 2 first
+    local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+    [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "workspace 2" 2>/dev/null || true
+    sleep 0.3
     WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
     chromium-browser --kiosk --no-sandbox --ozone-platform=wayland \
-      --app-id=signaeos-display2 \
+      --class=signaeos-display2 \
       --user-data-dir=/data/chromium-d2 \
       --app="data:text/html,<body style='background:%23000'></body>" 2>/dev/null || \
     WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
     chromium --kiosk --no-sandbox --ozone-platform=wayland \
-      --app-id=signaeos-display2 \
+      --class=signaeos-display2 \
       --user-data-dir=/data/chromium-d2 \
       --app="data:text/html,<body style='background:%23000'></body>" &
     NDI_PID=$!
@@ -56,6 +59,10 @@ launch_ndi() {
   fi
 
   log "NDI → $source (workspace 2 / HDMI-A-2)"
+  # Switch to workspace 2
+  local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+  [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "workspace 2" 2>/dev/null || true
+  sleep 0.3
 
   if command -v vlc &>/dev/null; then
     WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \

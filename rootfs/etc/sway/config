@@ -5,13 +5,16 @@ output HDMI-A-2 enable mode 1920x1080@60Hz position 1920 0
 workspace 1 output HDMI-A-1
 workspace 2 output HDMI-A-2
 
-# Assign apps to specific outputs by app_id
-assign [app_id="signaeos-display1"] workspace 1
-assign [app_id="signaeos-display2"] workspace 2
+# Assign by WM class (set via --class flag in Chromium)
+assign [class="signaeos-display1"] workspace 1
+assign [class="signaeos-display2"] workspace 2
+assign [class="signaeos-test-d1"]  workspace 1
+assign [class="signaeos-test-d2"]  workspace 2
 
-# Make assigned apps fullscreen automatically
-for_window [app_id="signaeos-display1"] fullscreen enable
-for_window [app_id="signaeos-display2"] fullscreen enable
+for_window [class="signaeos-display1"] fullscreen enable
+for_window [class="signaeos-display2"] fullscreen enable
+for_window [class="signaeos-test-d1"]  fullscreen enable
+for_window [class="signaeos-test-d2"]  fullscreen enable
 
 default_border none
 default_floating_border none
@@ -20,9 +23,3 @@ gaps inner 0
 gaps outer 0
 seat * hide_cursor 3000
 focus_follows_mouse no
-
-# Test cards
-assign [app_id="signaeos-test-d1"] workspace 1
-assign [app_id="signaeos-test-d2"] workspace 2
-for_window [app_id="signaeos-test-d1"] fullscreen enable
-for_window [app_id="signaeos-test-d2"] fullscreen enable
