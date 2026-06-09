@@ -152,15 +152,21 @@ step "Installing NDI SDK"
 
 NDI_URL="https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz"
 TMP=$(mktemp -d)
-if curl -fsSL --connect-timeout 30 "$NDI_URL" -o "$TMP/ndi.tar.gz"; then
-  tar -xzf "$TMP/ndi.tar.gz" -C "$TMP"
-  ACCEPT_NDI_LICENSE=y "$TMP"/Install_NDI_SDK_v6_Linux.sh || true
-  echo "/usr/local/lib" > /etc/ld.so.conf.d/ndi.conf
-  ldconfig
-  info "NDI SDK installed"
+if [[ "${SIGNAEOS_INSTALL_NDI_SDK:-0}" == "1" ]]; then
+  warn "Installing the NDI SDK requires accepting NDI's license terms."
+  if curl -fsSL --connect-timeout 30 "$NDI_URL" -o "$TMP/ndi.tar.gz"; then
+    tar -xzf "$TMP/ndi.tar.gz" -C "$TMP"
+    "$TMP"/Install_NDI_SDK_v6_Linux.sh || true
+    echo "/usr/local/lib" > /etc/ld.so.conf.d/ndi.conf
+    ldconfig
+    info "NDI SDK installer finished"
+  else
+    warn "NDI SDK download failed — NDI features unavailable"
+    warn "Install manually later from https://ndi.video/for-developers/ndi-sdk/"
+  fi
 else
-  warn "NDI SDK download failed — NDI features unavailable"
-  warn "Install manually later from https://ndi.video/for-developers/ndi-sdk/"
+  warn "Skipping NDI SDK install. Set SIGNAEOS_INSTALL_NDI_SDK=1 to install it interactively."
+  warn "Review NDI's license first: https://ndi.video/for-developers/ndi-sdk/download/"
 fi
 rm -rf "$TMP"
 

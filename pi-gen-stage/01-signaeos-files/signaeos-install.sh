@@ -10,13 +10,17 @@ node --version
 # ── NDI SDK for Linux ─────────────────────────────────────────────────────────
 NDI_SDK_URL="https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz"
 TMP_NDI=$(mktemp -d)
-if curl -fsSL --connect-timeout 30 "$NDI_SDK_URL" -o "$TMP_NDI/ndi.tar.gz"; then
-  tar -xzf "$TMP_NDI/ndi.tar.gz" -C "$TMP_NDI"
-  ACCEPT_NDI_LICENSE=y "$TMP_NDI"/Install_NDI_SDK_v6_Linux.sh || true
-  echo "/usr/local/lib" > /etc/ld.so.conf.d/ndi.conf
-  ldconfig
+if [[ "${SIGNAEOS_INSTALL_NDI_SDK:-0}" == "1" ]]; then
+  if curl -fsSL --connect-timeout 30 "$NDI_SDK_URL" -o "$TMP_NDI/ndi.tar.gz"; then
+    tar -xzf "$TMP_NDI/ndi.tar.gz" -C "$TMP_NDI"
+    "$TMP_NDI"/Install_NDI_SDK_v6_Linux.sh || true
+    echo "/usr/local/lib" > /etc/ld.so.conf.d/ndi.conf
+    ldconfig
+  else
+    echo "WARNING: NDI SDK download failed — NDI support unavailable until manually installed."
+  fi
 else
-  echo "WARNING: NDI SDK download failed — NDI support unavailable until manually installed."
+  echo "Skipping NDI SDK install. Set SIGNAEOS_INSTALL_NDI_SDK=1 to install it interactively."
 fi
 rm -rf "$TMP_NDI"
 

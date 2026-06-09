@@ -240,18 +240,22 @@ EOF
   chr "$root" "curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -"
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs"
 
-  # NDI SDK
-  info "Installing NDI SDK..."
-  chr "$root" "TMP_NDI=\$(mktemp -d); \
-    if curl -fsSL --connect-timeout 30 https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz -o \"\$TMP_NDI/ndi.tar.gz\"; then \
-      tar -xzf \"\$TMP_NDI/ndi.tar.gz\" -C \"\$TMP_NDI\"; \
-      ACCEPT_NDI_LICENSE=y \"\$TMP_NDI\"/Install_NDI_SDK_v6_Linux.sh || true; \
-      echo /usr/local/lib > /etc/ld.so.conf.d/ndi.conf; \
-      ldconfig; \
-    else \
-      echo 'WARNING: NDI SDK download failed; install manually later.'; \
-    fi; \
-    rm -rf \"\$TMP_NDI\""
+  # NDI SDK. Do not auto-accept the SDK license while building images.
+  if [[ "${SIGNAEOS_INSTALL_NDI_SDK:-0}" == "1" ]]; then
+    info "Installing NDI SDK interactively..."
+    chr "$root" "TMP_NDI=\$(mktemp -d); \
+      if curl -fsSL --connect-timeout 30 https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz -o \"\$TMP_NDI/ndi.tar.gz\"; then \
+        tar -xzf \"\$TMP_NDI/ndi.tar.gz\" -C \"\$TMP_NDI\"; \
+        \"\$TMP_NDI\"/Install_NDI_SDK_v6_Linux.sh || true; \
+        echo /usr/local/lib > /etc/ld.so.conf.d/ndi.conf; \
+        ldconfig; \
+      else \
+        echo 'WARNING: NDI SDK download failed; install manually later.'; \
+      fi; \
+      rm -rf \"\$TMP_NDI\""
+  else
+    info "Skipping NDI SDK install. Set SIGNAEOS_INSTALL_NDI_SDK=1 to install it interactively."
+  fi
 
   # Companion Satellite dependencies
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

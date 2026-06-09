@@ -90,7 +90,15 @@ The display services run as the `signaeos` user. Runtime sockets live under `/ru
 
 ## NDI Notes
 
-The installer downloads the NDI SDK and builds `/usr/bin/signaeos-ndi-player`. If the SDK download fails, Display 2 will fall back to VLC/`ndiplay` if either is available, then finally to a placeholder page showing the selected source name.
+SignageOS does not install the NDI SDK by default because the SDK has its own license terms. Review the NDI SDK license before installing it, especially for appliance, embedded, or commercial deployments.
+
+For a test system where you accept the SDK terms, install interactively:
+
+```bash
+sudo SIGNAEOS_INSTALL_NDI_SDK=1 bash install.sh
+```
+
+When the SDK header and library are present, the installer builds `/usr/bin/signaeos-ndi-player`. If the native player is unavailable, Display 2 will fall back to VLC/`ndiplay` if either is available, then finally to a placeholder page showing the selected source name.
 
 If discovery does not find your source:
 
