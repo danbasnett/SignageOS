@@ -6,6 +6,9 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/@@GITHUB_REPO@@/main/install.sh | sudo bash
 #
+# To test an unreleased branch:
+#   curl -fsSL https://raw.githubusercontent.com/danbasnett/SignageOS/codex/pi-dual-display-ndi-url/install.sh | sudo SIGNAEOS_REF=codex/pi-dual-display-ndi-url bash
+#
 # Or download and run manually:
 #   sudo bash install.sh
 # =============================================================================
@@ -13,6 +16,7 @@ set -euo pipefail
 
 SIGNAEOS_VERSION="${SIGNAEOS_VERSION:-dev}"
 GITHUB_REPO="${GITHUB_REPO:-danbasnett/SignageOS}"
+SIGNAEOS_REF="${SIGNAEOS_REF:-main}"
 NODE_VERSION="20"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -173,7 +177,7 @@ if curl -fsSL --head "$FILES_URL" 2>/dev/null | grep -q "200\|302"; then
 else
   warn "Release tarball not found — downloading files directly from repository..."
   # Download each file individually from the repo
-  BASE_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
+  BASE_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${SIGNAEOS_REF}"
 
   # Systemd services
   for svc in signaeos-display1 signaeos-display2 signaeos-webui \

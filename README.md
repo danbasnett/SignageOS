@@ -40,6 +40,12 @@ Takes about 10–15 minutes. Then browse to **http://signaeos.local:3000**.
 curl -fsSL https://raw.githubusercontent.com/danbasnett/SignageOS/main/install.sh | sudo bash
 ```
 
+To test this branch before it is merged to `main`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/danbasnett/SignageOS/codex/pi-dual-display-ndi-url/install.sh | sudo SIGNAEOS_REF=codex/pi-dual-display-ndi-url bash
+```
+
 4. Open **http://signaeos.local:3000**.
 5. In **Display 1 — Web**, add the URL you want to show and save.
 6. In **Display 2 — NDI**, add or discover the NDI source and select it.
