@@ -5,24 +5,45 @@ set -euo pipefail
 CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display2.sock"
 NDI_PID=""
-export XDG_RUNTIME_DIR="/run/user/1000"
-export WAYLAND_DISPLAY="wayland-1"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/signaeos-runtime}"
 
 log()  { logger -t "signaeos-display2" -- "$*"; echo "[$(date '+%H:%M:%S')] [d2] $*"; }
 warn() { logger -t "signaeos-display2" -- "WARN: $*"; }
 cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+cfg_set_source() { local t; t=$(mktemp); jq --arg source "$1" '.display2.current_source = $source' "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+json() { jq -cn "$@"; }
+
+detect_wayland() {
+  local sock
+  sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' 2>/dev/null | sort | head -1 || true)
+  if [[ -n "$sock" ]]; then
+    export WAYLAND_DISPLAY="$(basename "$sock")"
+  else
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+  fi
+}
 
 sway_cmd() {
-  local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+  local sock; sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'sway-ipc.*.sock' 2>/dev/null | sort | head -1 || true)
   [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
+}
+
+browser_cmd() {
+  local p
+  for p in chromium-browser chromium /usr/bin/chromium-browser /usr/bin/chromium /usr/lib/chromium/chromium; do
+    if [[ "$p" == /* && -x "$p" ]]; then echo "$p"; return 0; fi
+    if [[ "$p" != /* ]] && command -v "$p" >/dev/null 2>&1; then command -v "$p"; return 0; fi
+  done
+  return 1
 }
 
 wait_display() {
   log "Waiting for Wayland..."
   local n=90
   while (( n-- > 0 )); do
-    [[ -S "/run/user/1000/wayland-1" ]] && { log "Wayland ready"; return 0; }
+    detect_wayland
+    [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && { log "Wayland ready ($WAYLAND_DISPLAY)"; return 0; }
     sleep 1
   done
 }
@@ -47,12 +68,22 @@ launch_ndi() {
   sway_cmd "workspace 2"
   sleep 0.5
 
+  if [[ -x /usr/bin/signaeos-ndi-player ]]; then
+    log "Using native SignageOS NDI player"
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+    /usr/bin/signaeos-ndi-player "$source" 2>/dev/null &
+    NDI_PID=$!
+    sleep 1
+    sway_cmd '[title="SignageOS NDI"] fullscreen enable'
+    return
+  fi
+
   # Try VLC with NDI plugin
   if command -v vlc &>/dev/null; then
     # Check if NDI module is available
     if vlc --list 2>/dev/null | grep -qi ndi || ls /usr/lib/*/vlc/plugins/*ndi* 2>/dev/null | head -1 | grep -q .; then
       log "Using VLC NDI plugin"
-      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
+      WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
       vlc --fullscreen --no-osd --no-video-title-show \
         --qt-minimal-view --no-qt-name-in-title \
         "ndi://${source}" 2>/dev/null &
@@ -66,7 +97,7 @@ launch_ndi() {
   for p in /usr/local/bin/ndiplay /usr/bin/ndiplay /opt/ndi/bin/ndiplay; do
     if [[ -x "$p" ]]; then
       log "Using ndiplay: $p"
-      WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
+      WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
       "$p" -s "$source" 2>/dev/null &
       NDI_PID=$!
       return
@@ -75,9 +106,11 @@ launch_ndi() {
 
   # Fallback: show source name in browser on workspace 2
   warn "No NDI player found — showing placeholder"
+  local browser
+  browser=$(browser_cmd) || { warn "Chromium executable not found"; return 1; }
   rm -f /data/chromium-d2/SingletonLock /data/chromium-d2/SingletonSocket 2>/dev/null || true
-  WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-  /usr/lib/chromium/chromium --kiosk --start-fullscreen --no-sandbox \
+  WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+  "$browser" --kiosk --start-fullscreen --no-sandbox \
     --ozone-platform=wayland \
     --user-data-dir=/data/chromium-d2 \
     --app="data:text/html,<body style='margin:0;background:%23111;display:flex;align-items:center;justify-content:center;height:100vh'><div style='color:white;font-family:sans-serif;text-align:center'><p style='font-size:3vw;color:%23888'>NDI Source</p><p style='font-size:2.5vw'>${source}</p><p style='font-size:1.5vw;color:%23666;margin-top:20px'>Install VLC for video playback</p></div></body>" &
@@ -92,7 +125,7 @@ handle_command() {
   case "$cmd" in
     source)
       local name; name=$(echo "$line" | jq -r '.source // ""')
-      cfg_set '.display2.current_source' "\"$name\""
+      cfg_set_source "$name"
       launch_ndi "$name"; echo '{"ok":true}' ;;
     next)
       local sources cur idx total
@@ -100,25 +133,26 @@ handle_command() {
       cur=$(cfg '.display2.current_source' "")
       total=$(echo "$sources" | jq 'length')
       (( total == 0 )) && echo '{"ok":false,"error":"no sources"}' && return
-      idx=$(echo "$sources" | jq -r "index(\"$cur\") // -1")
+      idx=$(echo "$sources" | jq -r --arg cur "$cur" 'index($cur) // -1')
       idx=$(( (idx + 1) % total ))
       local next; next=$(echo "$sources" | jq -r ".[$idx]")
-      cfg_set '.display2.current_source' "\"$next\""
-      launch_ndi "$next"; echo "{\"ok\":true,\"source\":\"$next\"}" ;;
+      cfg_set_source "$next"
+      launch_ndi "$next"; json --arg source "$next" '{ok:true, source:$source}' ;;
     prev)
       local sources cur idx total
       sources=$(jq -r '[.display2.sources[].name]' "$CONFIG" 2>/dev/null || echo '[]')
       cur=$(cfg '.display2.current_source' "")
       total=$(echo "$sources" | jq 'length')
       (( total == 0 )) && echo '{"ok":false,"error":"no sources"}' && return
-      idx=$(echo "$sources" | jq -r "index(\"$cur\") // 0")
+      idx=$(echo "$sources" | jq -r --arg cur "$cur" 'index($cur) // 0')
       idx=$(( (idx - 1 + total) % total ))
       local prev; prev=$(echo "$sources" | jq -r ".[$idx]")
-      cfg_set '.display2.current_source' "\"$prev\""
-      launch_ndi "$prev"; echo "{\"ok\":true,\"source\":\"$prev\"}" ;;
+      cfg_set_source "$prev"
+      launch_ndi "$prev"; json --arg source "$prev" '{ok:true, source:$source}' ;;
     status)
       local src; src=$(cfg '.display2.current_source' "")
-      echo "{\"ok\":true,\"display\":2,\"source\":\"$src\",\"pid\":${NDI_PID:-0}}" ;;
+      json --arg source "$src" --argjson pid "${NDI_PID:-0}" \
+        '{ok:true, display:2, source:$source, pid:$pid}' ;;
     *) echo '{"ok":false,"error":"unknown"}' ;;
   esac
 }

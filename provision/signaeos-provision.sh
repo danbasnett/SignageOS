@@ -62,6 +62,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   network-manager wpasupplicant \
   avahi-daemon libnss-mdns \
   vlan \
+  seatd \
   cloud-guest-utils \
   usbutils libusb-1.0-0 \
   alsa-utils \
@@ -70,10 +71,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # ── Display stack ─────────────────────────────────────────────────────────────
 step "Installing display stack"
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  weston \
+  sway \
   xwayland \
   libwayland-client0 \
   libinput10 \
+  libgles2 \
   fonts-dejavu-core \
   fonts-noto-color-emoji
 
@@ -85,6 +87,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   chromium \
   firefox-esr
+
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  build-essential \
+  pkg-config \
+  libsdl2-2.0-0 \
+  libsdl2-dev
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 step "Installing Node.js $NODE_VERSION"
@@ -147,6 +155,27 @@ chmod +x /usr/bin/signaeos-display2
 chmod +x /usr/bin/signaeos-ctl
 chmod +x /usr/bin/signaeos-update
 
+if ! id signaeos &>/dev/null; then
+  useradd -m -s /bin/bash signaeos
+fi
+for group in video input render audio plugdev seat; do
+  getent group "$group" >/dev/null && usermod -aG "$group" signaeos || true
+done
+mkdir -p /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
+chown -R signaeos:signaeos /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
+
+NDI_HEADER="$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true)"
+if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]]; then
+  NDI_INCLUDE_DIR="$(dirname "$NDI_HEADER")"
+  if gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
+      -I"$NDI_INCLUDE_DIR" -L/usr/local/lib $(pkg-config --cflags --libs sdl2) -lndi; then
+    chmod +x /usr/bin/signaeos-ndi-player
+    info "Native NDI player installed."
+  else
+    warn "Native NDI player build failed — Display 2 will try VLC/ndiplay fallback."
+  fi
+fi
+
 # ── System config ─────────────────────────────────────────────────────────────
 step "Configuring system"
 
@@ -189,14 +218,17 @@ echo "$SIGNAEOS_VERSION" > /etc/signaeos-version
 step "Enabling services"
 systemctl daemon-reload
 systemctl enable \
-  weston.service \
+  sway.service \
   signaeos-display1.service \
   signaeos-display2.service \
   signaeos-webui.service \
   companion-satellite.service \
   signaeos-update.timer \
+  seatd.service \
   NetworkManager.service \
   avahi-daemon.service
+
+systemctl disable weston.service 2>/dev/null || true
 
 systemctl set-default multi-user.target
 

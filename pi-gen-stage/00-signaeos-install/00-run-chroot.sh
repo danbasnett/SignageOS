@@ -40,6 +40,23 @@ echo "Web UI deps installed."
 
 # ── Permissions + misc ────────────────────────────────────────────────────────
 chmod +x /usr/bin/signaeos-display1 /usr/bin/signaeos-display2 /usr/bin/signaeos-ctl
+
+if ! id signaeos &>/dev/null; then
+  useradd -m -s /bin/bash signaeos
+fi
+for group in video input render audio plugdev seat; do
+  getent group "$group" >/dev/null && usermod -aG "$group" signaeos || true
+done
+mkdir -p /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
+chown -R signaeos:signaeos /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
+
+NDI_HEADER="$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true)"
+if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]]; then
+  NDI_INCLUDE_DIR="$(dirname "$NDI_HEADER")"
+  gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
+    -I"$NDI_INCLUDE_DIR" -L/usr/local/lib $(pkg-config --cflags --libs sdl2) -lndi || true
+  chmod +x /usr/bin/signaeos-ndi-player 2>/dev/null || true
+fi
 echo "8021q" >> /etc/modules
 cat > /etc/udev/rules.d/50-streamdeck.rules <<'UDEV'
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", MODE="0666", GROUP="plugdev"
@@ -61,10 +78,12 @@ systemctl enable \
   signaeos-webui.service \
   companion-satellite.service \
   signaeos-update.timer \
+  seatd.service \
   NetworkManager.service \
   avahi-daemon.service \
   ssh.service \
-  weston.service
+  sway.service
+systemctl disable weston.service 2>/dev/null || true
 systemctl set-default multi-user.target
 
 echo "SignageOS install complete."
