@@ -183,6 +183,13 @@ fi
 # ── System config ─────────────────────────────────────────────────────────────
 step "Configuring system"
 
+# Keep sudo happy after hostname changes.
+HOSTNAME="$(cat /etc/hostname 2>/dev/null || hostname)"
+if ! grep -Eq "^[[:space:]]*127\.0\.1\.1[[:space:]].*\\b${HOSTNAME}\\b" /etc/hosts 2>/dev/null; then
+  sed -i '/^[[:space:]]*127\.0\.1\.1[[:space:]]/d' /etc/hosts 2>/dev/null || true
+  printf '127.0.1.1\t%s %s.local\n' "$HOSTNAME" "$HOSTNAME" >> /etc/hosts
+fi
+
 # Sudoers — get current user (pi / signaeos / whatever pi imager set)
 MAIN_USER=$(getent passwd 1000 | cut -d: -f1 || echo "pi")
 echo "${MAIN_USER} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/010_signaeos

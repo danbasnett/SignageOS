@@ -62,6 +62,11 @@ if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]] && [[ -n "$
   chmod +x /usr/bin/signaeos-ndi-player 2>/dev/null || true
 fi
 echo "8021q" >> /etc/modules
+HOSTNAME="$(cat /etc/hostname 2>/dev/null || hostname)"
+if ! grep -Eq "^[[:space:]]*127\.0\.1\.1[[:space:]].*\\b${HOSTNAME}\\b" /etc/hosts 2>/dev/null; then
+  sed -i '/^[[:space:]]*127\.0\.1\.1[[:space:]]/d' /etc/hosts 2>/dev/null || true
+  printf '127.0.1.1\t%s %s.local\n' "$HOSTNAME" "$HOSTNAME" >> /etc/hosts
+fi
 cat > /etc/udev/rules.d/50-streamdeck.rules <<'UDEV'
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", MODE="0666", GROUP="plugdev"
 UDEV

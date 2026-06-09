@@ -61,6 +61,21 @@ function writeNdiConfig(cfg) {
   console.log('NDI config written:', JSON.stringify(ndiCfg.ndi.networks));
 }
 
+function writeHostsHostname(name) {
+  if (!name) return;
+  try {
+    const line = `127.0.1.1\t${name} ${name}.local`;
+    let hosts = '';
+    try { hosts = fs.readFileSync('/etc/hosts', 'utf8'); } catch {}
+    const filtered = hosts
+      .split('\n')
+      .filter(l => !/^\s*127\.0\.1\.1\s/.test(l))
+      .join('\n')
+      .replace(/\n*$/, '\n');
+    fs.writeFileSync('/etc/hosts', filtered + line + '\n');
+  } catch {}
+}
+
 // ── Socket ─────────────────────────────────────────────────────────────────
 function sendSocket(sockPath, cmd) {
   return new Promise(resolve => {
@@ -241,8 +256,11 @@ async function applyConfig(cfg) {
   writeConfig(cfg);
   writeNdiConfig(cfg);
 
-  try { fs.writeFileSync('/etc/hostname', cfg.network.hostname + '\n');
-        execSync(`hostname '${cfg.network.hostname}'`); } catch {}
+  try {
+    fs.writeFileSync('/etc/hostname', cfg.network.hostname + '\n');
+    writeHostsHostname(cfg.network.hostname);
+    execSync(`hostname '${cfg.network.hostname}'`);
+  } catch {}
 
   if (cfg.ssh?.authorized_keys) {
     try {

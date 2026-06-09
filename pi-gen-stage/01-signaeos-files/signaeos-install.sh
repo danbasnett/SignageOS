@@ -72,6 +72,11 @@ fi
 
 # ── Version stamp ─────────────────────────────────────────────────────────────
 echo "@@SIGNAEOS_VERSION@@" > /etc/signaeos-version
+HOSTNAME="$(cat /etc/hostname 2>/dev/null || hostname)"
+if ! grep -Eq "^[[:space:]]*127\.0\.1\.1[[:space:]].*\\b${HOSTNAME}\\b" /etc/hosts 2>/dev/null; then
+  sed -i '/^[[:space:]]*127\.0\.1\.1[[:space:]]/d' /etc/hosts 2>/dev/null || true
+  printf '127.0.1.1\t%s %s.local\n' "$HOSTNAME" "$HOSTNAME" >> /etc/hosts
+fi
 
 # ── Enable systemd services ───────────────────────────────────────────────────
 systemctl enable \
