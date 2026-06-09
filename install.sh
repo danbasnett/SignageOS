@@ -279,8 +279,8 @@ udevadm control --reload-rules 2>/dev/null || true
 # Sway config
 mkdir -p /etc/sway
 cat > /etc/sway/config <<'EOF'
-output HDMI-A-1 enable position 0 0
-output HDMI-A-2 enable position 1920 0
+output HDMI-A-1 enable mode 1920x1080@60Hz position 0 0 transform normal
+output HDMI-A-2 enable mode 1920x1080@60Hz position 1920 0 transform normal
 
 workspace 1 output HDMI-A-1
 workspace 2 output HDMI-A-2
