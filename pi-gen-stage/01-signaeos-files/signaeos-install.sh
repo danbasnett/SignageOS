@@ -59,10 +59,14 @@ mkdir -p /data/signaeos /data/chromium-profile /data/firefox-profile /data/chrom
 chown -R signaeos:signaeos /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
 
 NDI_HEADER="$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true)"
-if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]]; then
+NDI_LIB="$(find /usr/local/lib /usr/lib -name 'libndi.so*' 2>/dev/null | sort | head -1 || true)"
+if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]] && [[ -n "$NDI_LIB" ]]; then
   NDI_INCLUDE_DIR="$(dirname "$NDI_HEADER")"
+  NDI_LIB_DIR="$(dirname "$NDI_LIB")"
+  echo "$NDI_LIB_DIR" > /etc/ld.so.conf.d/ndi.conf
+  ldconfig || true
   gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
-    -I"$NDI_INCLUDE_DIR" -L/usr/local/lib $(pkg-config --cflags --libs sdl2) -lndi || true
+    -I"$NDI_INCLUDE_DIR" -L"$NDI_LIB_DIR" -Wl,-rpath,"$NDI_LIB_DIR" $(pkg-config --cflags --libs sdl2) -lndi || true
   chmod +x /usr/bin/signaeos-ndi-player 2>/dev/null || true
 fi
 

@@ -313,10 +313,14 @@ install_signaeos_files() {
   if [[ -f "$root/usr/src/signaeos/ndi-player.c" ]]; then
     mount_chroot "$root"
     chr "$root" "NDI_HEADER=\$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true); \
-    if [[ -n \"\$NDI_HEADER\" ]]; then \
+    NDI_LIB=\$(find /usr/local/lib /usr/lib -name 'libndi.so*' 2>/dev/null | sort | head -1 || true); \
+    if [[ -n \"\$NDI_HEADER\" && -n \"\$NDI_LIB\" ]]; then \
       NDI_INCLUDE_DIR=\$(dirname \"\$NDI_HEADER\"); \
+      NDI_LIB_DIR=\$(dirname \"\$NDI_LIB\"); \
+      echo \"\$NDI_LIB_DIR\" > /etc/ld.so.conf.d/ndi.conf; \
+      ldconfig || true; \
       gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
-        -I\"\$NDI_INCLUDE_DIR\" -L/usr/local/lib \$(pkg-config --cflags --libs sdl2) -lndi || true; \
+        -I\"\$NDI_INCLUDE_DIR\" -L\"\$NDI_LIB_DIR\" -Wl,-rpath,\"\$NDI_LIB_DIR\" \$(pkg-config --cflags --libs sdl2) -lndi || true; \
       chmod +x /usr/bin/signaeos-ndi-player 2>/dev/null || true; \
     fi"
     umount_chroot "$root"

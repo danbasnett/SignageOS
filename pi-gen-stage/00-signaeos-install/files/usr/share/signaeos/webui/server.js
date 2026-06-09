@@ -531,6 +531,8 @@ app.post('/api/test/:display', (req, res) => {
     return res.status(404).json({ ok: false, error: 'unknown test display' });
   }
   const workspace = display === '2' ? '2' : '1';
+  const service = `signaeos-display${display}`;
+  const appId = `signaeos-test-d${display}`;
   const colors   = ['red','orange','yellow','lime','cyan','blue','violet','white'];
   const htmlPath = `/tmp/signaeos-test-d${display}.html`;
   const title = `SignageOS Test Display ${display}`;
@@ -548,7 +550,7 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 
   fs.writeFileSync(htmlPath, html);
 
-  exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
+  exec(`systemctl stop ${service} 2>/dev/null; pkill -9 -f "user-data-dir=/data/chromium-test-d${display}" 2>/dev/null; true`, () => {
     const sm = swaymsgPrefix();
     const switchCmd = sm ? `${sm} workspace ${workspace} 2>/dev/null || true` : 'true';
       exec(switchCmd, () => {
@@ -561,6 +563,9 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
             '--start-fullscreen',
             '--no-sandbox',
             '--ozone-platform=wayland',
+            `--class=${appId}`,
+            '--new-window',
+            '--window-size=1920,1080',
             `--user-data-dir=/data/chromium-test-d${display}`,
             '--disable-infobars',
             '--noerrdialogs',
@@ -573,7 +578,7 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
             setTimeout(() => {
               const sm2 = swaymsgPrefix();
               if (sm2) {
-                exec(`${sm2} '[title="${title}"] move container to workspace ${workspace}' 2>/dev/null; ${sm2} '[title="${title}"] fullscreen enable' 2>/dev/null; true`);
+                exec(`${sm2} '[app_id="${appId}"] move container to workspace ${workspace}' 2>/dev/null; ${sm2} '[app_id="${appId}"] focus' 2>/dev/null; ${sm2} '[app_id="${appId}"] fullscreen enable' 2>/dev/null; true`);
               }
             }, 3000);
             res.json({ ok: true });

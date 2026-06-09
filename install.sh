@@ -229,17 +229,21 @@ info "SignageOS files installed"
 step "Building native NDI player"
 
 NDI_HEADER="$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true)"
-if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]]; then
+NDI_LIB="$(find /usr/local/lib /usr/lib -name 'libndi.so*' 2>/dev/null | sort | head -1 || true)"
+if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]] && [[ -n "$NDI_LIB" ]]; then
   NDI_INCLUDE_DIR="$(dirname "$NDI_HEADER")"
+  NDI_LIB_DIR="$(dirname "$NDI_LIB")"
+  echo "$NDI_LIB_DIR" > /etc/ld.so.conf.d/ndi.conf
+  ldconfig || true
   if gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
-      -I"$NDI_INCLUDE_DIR" -L/usr/local/lib $(pkg-config --cflags --libs sdl2) -lndi; then
+      -I"$NDI_INCLUDE_DIR" -L"$NDI_LIB_DIR" -Wl,-rpath,"$NDI_LIB_DIR" $(pkg-config --cflags --libs sdl2) -lndi; then
     chmod +x /usr/bin/signaeos-ndi-player
     info "Native NDI player installed"
   else
     warn "Native NDI player build failed — Display 2 will try VLC/ndiplay fallback"
   fi
 else
-  warn "NDI SDK headers or player source missing — Display 2 will try VLC/ndiplay fallback"
+  warn "NDI SDK headers, library, or player source missing — Display 2 will try VLC/ndiplay fallback"
 fi
 
 # ── Web UI dependencies ───────────────────────────────────────────────────────
