@@ -517,13 +517,25 @@ app.post('/api/network/vlans', (req, res) => {
 });
 
 // ── Test card ──────────────────────────────────────────────────────────────
+app.post('/api/test/stop', (req, res) => {
+  exec('pkill -9 -f "user-data-dir=/data/chromium-test-d" 2>/dev/null; rm -f /tmp/signaeos-test-d*.html; true', () => {
+    exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
+      res.json({ ok: true });
+    });
+  });
+});
+
 app.post('/api/test/:display', (req, res) => {
   const display  = req.params.display;
+  if (!['1', '2'].includes(display)) {
+    return res.status(404).json({ ok: false, error: 'unknown test display' });
+  }
   const workspace = display === '2' ? '2' : '1';
   const colors   = ['red','orange','yellow','lime','cyan','blue','violet','white'];
   const htmlPath = `/tmp/signaeos-test-d${display}.html`;
+  const title = `SignageOS Test Display ${display}`;
 
-  const html = `<!DOCTYPE html><html><body style="margin:0;overflow:hidden;background:#000;font-family:sans-serif">
+  const html = `<!DOCTYPE html><html><head><title>${title}</title></head><body style="margin:0;overflow:hidden;background:#000;font-family:sans-serif">
 <div style="display:grid;grid-template-columns:repeat(8,1fr);width:100vw;height:55vh">
 ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 </div>
@@ -557,23 +569,17 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
           ].join(' ');
           exec(cmd + ' &', err => {
             if (err) return res.json({ ok: false, error: err.message });
-            // Force fullscreen after launch
+            // Move the titled test window to the requested workspace, then fullscreen it.
             setTimeout(() => {
               const sm2 = swaymsgPrefix();
-              if (sm2) exec(`${sm2} '[app_id="chromium"] fullscreen enable' 2>/dev/null`);
+              if (sm2) {
+                exec(`${sm2} '[title="${title}"] move container to workspace ${workspace}' 2>/dev/null; ${sm2} '[title="${title}"] fullscreen enable' 2>/dev/null; true`);
+              }
             }, 3000);
             res.json({ ok: true });
           });
         }, 500);
       });
-  });
-});
-
-app.post('/api/test/stop', (req, res) => {
-  exec('pkill -9 -f "user-data-dir=/data/chromium-test" 2>/dev/null; true', () => {
-    exec('systemctl restart signaeos-display1 && sleep 10 && systemctl restart signaeos-display2', () => {
-      res.json({ ok: true });
-    });
   });
 });
 

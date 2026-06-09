@@ -86,7 +86,7 @@ launch_browser() {
     --disable-features=TranslateUI,OverscrollHistoryNavigation \
     --remote-debugging-port=9222 \
     --remote-allow-origins='http://localhost:3000' \
-    "$KIOSK_URL" &
+    --app="$KIOSK_URL" &
   BROWSER_PID=$!
   log "Browser PID: $BROWSER_PID"
 
