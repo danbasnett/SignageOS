@@ -12,9 +12,10 @@ echo "Added ${FIRST_USER_NAME} to sudoers."
 
 # ── Verify services are enabled ───────────────────────────────────────────────
 for svc in signaeos-webui signaeos-display1 signaeos-display2 \
-           companion-satellite weston NetworkManager avahi-daemon ssh; do
+           companion-satellite sway seatd NetworkManager avahi-daemon ssh; do
     systemctl enable \$svc 2>/dev/null && echo "Enabled: \$svc" || echo "Warning: could not enable \$svc"
 done
+systemctl disable weston 2>/dev/null || true
 systemctl enable signaeos-update.timer 2>/dev/null || true
 
 # ── Verify web UI files exist ─────────────────────────────────────────────────

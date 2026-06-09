@@ -191,15 +191,18 @@ EOF
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     network-manager wpasupplicant \
     avahi-daemon libnss-mdns \
-    alsa-utils usbutils"
+    alsa-utils usbutils seatd"
 
   # Wayland + compositor
   info "Installing display stack..."
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    weston xwayland \
+    sway xwayland \
     libwayland-client0 libwayland-server0 \
-    libinput10 mesa-utils \
+    libinput10 libgles2 mesa-utils \
     fonts-dejavu-core fonts-liberation"
+
+  chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential pkg-config libsdl2-2.0-0 libsdl2-dev"
 
   # Platform-specific display / GPU / kernel
   if [[ "$arch" == "arm64" ]]; then
@@ -236,6 +239,19 @@ EOF
   info "Installing Node.js $NODE_VERSION..."
   chr "$root" "curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -"
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs"
+
+  # NDI SDK
+  info "Installing NDI SDK..."
+  chr "$root" "TMP_NDI=\$(mktemp -d); \
+    if curl -fsSL --connect-timeout 30 https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz -o \"\$TMP_NDI/ndi.tar.gz\"; then \
+      tar -xzf \"\$TMP_NDI/ndi.tar.gz\" -C \"\$TMP_NDI\"; \
+      ACCEPT_NDI_LICENSE=y \"\$TMP_NDI\"/Install_NDI_SDK_v6_Linux.sh || true; \
+      echo /usr/local/lib > /etc/ld.so.conf.d/ndi.conf; \
+      ldconfig; \
+    else \
+      echo 'WARNING: NDI SDK download failed; install manually later.'; \
+    fi; \
+    rm -rf \"\$TMP_NDI\""
 
   # Companion Satellite dependencies
   chr "$root" "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -279,8 +295,8 @@ install_signaeos_files() {
 
   step "Installing SignageOS files"
 
-  # Copy rootfs overlay
-  cp -r "$PROJECT_DIR/rootfs-overlay/." "$root/"
+  # Copy the same dual-display runtime used by the direct installer.
+  cp -r "$PROJECT_DIR/rootfs/." "$root/"
 
   # Install web UI npm deps
   info "Installing web UI dependencies..."
@@ -289,9 +305,22 @@ install_signaeos_files() {
   umount_chroot "$root"
 
   # Set permissions
-  chmod +x "$root/usr/bin/signaeos-init"
+  chmod +x "$root/usr/bin/signaeos-display1"
+  chmod +x "$root/usr/bin/signaeos-display2"
   chmod +x "$root/usr/bin/signaeos-update"
   chmod +x "$root/usr/bin/signaeos-ctl"
+
+  if [[ -f "$root/usr/src/signaeos/ndi-player.c" ]]; then
+    mount_chroot "$root"
+    chr "$root" "NDI_HEADER=\$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true); \
+    if [[ -n \"\$NDI_HEADER\" ]]; then \
+      NDI_INCLUDE_DIR=\$(dirname \"\$NDI_HEADER\"); \
+      gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
+        -I\"\$NDI_INCLUDE_DIR\" -L/usr/local/lib \$(pkg-config --cflags --libs sdl2) -lndi || true; \
+      chmod +x /usr/bin/signaeos-ndi-player 2>/dev/null || true; \
+    fi"
+    umount_chroot "$root"
+  fi
 
   # Version stamp
   echo "$SIGNAEOS_VERSION" > "$root/etc/signaeos-version"
@@ -332,6 +361,11 @@ EOF
   chr "$root" "passwd -d root"
   chr "$root" "passwd -l root"
 
+  # Runtime user for Sway and display daemons
+  chr "$root" "useradd -m -s /bin/bash signaeos 2>/dev/null || true"
+  chr "$root" "for group in video input render audio plugdev seat; do getent group \"\$group\" >/dev/null && usermod -aG \"\$group\" signaeos || true; done"
+  chr "$root" "mkdir -p /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2 && chown -R signaeos:signaeos /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2"
+
   # SSH hardening
   mkdir -p "$root/root/.ssh"
   chmod 700 "$root/root/.ssh"
@@ -369,26 +403,26 @@ managed=true
 wifi.backend=wpa_supplicant
 EOF
 
-  # Weston kiosk compositor config
-  mkdir -p "$root/etc/weston"
-  cat > "$root/etc/weston/weston.ini" <<'EOF'
-[core]
-backend=drm-backend.so
-shell=kiosk-shell.so
-idle-time=0
-repaint-window=8
+  # Sway compositor config
+  mkdir -p "$root/etc/sway"
+  cat > "$root/etc/sway/config" <<'EOF'
+output HDMI-A-1 enable position 0 0
+output HDMI-A-2 enable position 1920 0
 
-[output]
-name=HDMI-A-1
-mode=1920x1080@60
-transform=normal
+workspace 1 output HDMI-A-1
+workspace 2 output HDMI-A-2
 
-[keyboard]
-keymap_rules=evdev
-keymap_layout=gb
+for_window [app_id="chromium"] fullscreen enable
+for_window [app_id="vlc"]      fullscreen enable
+for_window [title="SignageOS NDI"] fullscreen enable
 
-[shell]
-# Kiosk shell — no taskbar, no decorations
+default_border none
+default_floating_border none
+hide_edge_borders --i3 both
+gaps inner 0
+gaps outer 0
+seat * hide_cursor 3000
+focus_follows_mouse no
 EOF
 
   # systemd — disable units we don't need
@@ -399,14 +433,17 @@ EOF
 
   # Enable our units
   chr "$root" "systemctl enable \
-    signaeos-init.service \
+    signaeos-display1.service \
+    signaeos-display2.service \
     signaeos-webui.service \
     companion-satellite.service \
     signaeos-update.timer \
+    seatd.service \
     NetworkManager.service \
     avahi-daemon.service \
     ssh.service \
-    weston.service"
+    sway.service"
+  chr "$root" "systemctl disable weston.service 2>/dev/null || true"
 
   # systemd target: boot to multi-user (no GUI login manager)
   chr "$root" "systemctl set-default multi-user.target"

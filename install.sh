@@ -64,6 +64,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   curl wget ca-certificates gnupg \
   jq socat \
   vlan \
+  seatd \
   usbutils libusb-1.0-0 \
   unzip xz-utils \
   network-manager wpasupplicant \
@@ -71,12 +72,15 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 
 info "Core utilities installed"
 
-# Display stack — Weston Wayland compositor
+# Display stack — Sway Wayland compositor. Sway lets us pin workspace 1 to
+# one HDMI output and workspace 2 to the other, which is how SignageOS keeps
+# web and NDI content on separate displays.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  weston \
+  sway \
   xwayland \
   libwayland-client0 \
   libinput10 \
+  libgles2 \
   fonts-dejavu-core \
   fonts-noto-color-emoji
 
@@ -92,6 +96,26 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   firefox-esr 2>/dev/null || true
 
 info "Browsers installed"
+
+# Native NDI player build/runtime dependencies
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  build-essential \
+  pkg-config \
+  libsdl2-2.0-0 \
+  libsdl2-dev
+
+info "NDI player dependencies installed"
+
+# ── Runtime user ──────────────────────────────────────────────────────────────
+step "Creating SignageOS runtime user"
+
+if ! id signaeos &>/dev/null; then
+  useradd -m -s /bin/bash signaeos
+fi
+for group in video input render audio plugdev seat; do
+  getent group "$group" >/dev/null && usermod -aG "$group" signaeos || true
+done
+info "Runtime user ready"
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 step "Installing Node.js $NODE_VERSION"
@@ -153,7 +177,7 @@ else
 
   # Systemd services
   for svc in signaeos-display1 signaeos-display2 signaeos-webui \
-             companion-satellite weston signaeos-update; do
+             companion-satellite sway signaeos-update; do
     mkdir -p /etc/systemd/system
     curl -fsSL "$BASE_URL/rootfs/etc/systemd/system/${svc}.service" \
       -o "/etc/systemd/system/${svc}.service" 2>/dev/null || true
@@ -161,10 +185,10 @@ else
   curl -fsSL "$BASE_URL/rootfs/etc/systemd/system/signaeos-update.timer" \
     -o "/etc/systemd/system/signaeos-update.timer" 2>/dev/null || true
 
-  # Weston config
-  mkdir -p /etc/weston
-  curl -fsSL "$BASE_URL/rootfs/etc/weston/weston.ini" \
-    -o "/etc/weston/weston.ini" 2>/dev/null || true
+  # Sway config
+  mkdir -p /etc/sway
+  curl -fsSL "$BASE_URL/rootfs/etc/sway/config" \
+    -o "/etc/sway/config" 2>/dev/null || true
 
   # Binaries
   mkdir -p /usr/bin
@@ -181,10 +205,38 @@ else
     -o "/usr/share/signaeos/webui/package.json"
   curl -fsSL "$BASE_URL/rootfs/usr/share/signaeos/webui/public/index.html" \
     -o "/usr/share/signaeos/webui/public/index.html"
+
+  # Validation script
+  mkdir -p /usr/share/signaeos/scripts
+  curl -fsSL "$BASE_URL/rootfs/usr/share/signaeos/scripts/validate-pi.sh" \
+    -o "/usr/share/signaeos/scripts/validate-pi.sh" 2>/dev/null || true
+  chmod +x /usr/share/signaeos/scripts/validate-pi.sh 2>/dev/null || true
+
+  # Native NDI player source
+  mkdir -p /usr/src/signaeos
+  curl -fsSL "$BASE_URL/rootfs/usr/src/signaeos/ndi-player.c" \
+    -o "/usr/src/signaeos/ndi-player.c" 2>/dev/null || true
 fi
 
 rm -rf "$TMP"
 info "SignageOS files installed"
+
+# ── Native NDI player ────────────────────────────────────────────────────────
+step "Building native NDI player"
+
+NDI_HEADER="$(find /usr/local/include /usr/include -name Processing.NDI.Lib.h 2>/dev/null | head -1 || true)"
+if [[ -f /usr/src/signaeos/ndi-player.c ]] && [[ -n "$NDI_HEADER" ]]; then
+  NDI_INCLUDE_DIR="$(dirname "$NDI_HEADER")"
+  if gcc /usr/src/signaeos/ndi-player.c -o /usr/bin/signaeos-ndi-player \
+      -I"$NDI_INCLUDE_DIR" -L/usr/local/lib $(pkg-config --cflags --libs sdl2) -lndi; then
+    chmod +x /usr/bin/signaeos-ndi-player
+    info "Native NDI player installed"
+  else
+    warn "Native NDI player build failed — Display 2 will try VLC/ndiplay fallback"
+  fi
+else
+  warn "NDI SDK headers or player source missing — Display 2 will try VLC/ndiplay fallback"
+fi
 
 # ── Web UI dependencies ───────────────────────────────────────────────────────
 step "Installing web UI dependencies"
@@ -195,7 +247,8 @@ info "Web UI ready"
 
 # ── Data directory ────────────────────────────────────────────────────────────
 step "Setting up data directory"
-mkdir -p /data/signaeos /data/chromium-profile /data/firefox-profile
+mkdir -p /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
+chown -R signaeos:signaeos /data/signaeos /data/chromium-profile /data/firefox-profile /data/chromium-d2
 
 # ── System config ─────────────────────────────────────────────────────────────
 step "Configuring system"
@@ -219,28 +272,26 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", MODE="0666", GROUP="plugdev"
 EOF
 udevadm control --reload-rules 2>/dev/null || true
 
-# Weston config
-mkdir -p /etc/weston
-cat > /etc/weston/weston.ini <<'EOF'
-[core]
-backend=drm-backend.so
-shell=kiosk-shell.so
-idle-time=0
-repaint-window=8
+# Sway config
+mkdir -p /etc/sway
+cat > /etc/sway/config <<'EOF'
+output HDMI-A-1 enable position 0 0
+output HDMI-A-2 enable position 1920 0
 
-[output]
-name=HDMI-A-1
-mode=1920x1080@60
-transform=normal
+workspace 1 output HDMI-A-1
+workspace 2 output HDMI-A-2
 
-[output]
-name=HDMI-A-2
-mode=1920x1080@60
-transform=normal
+for_window [app_id="chromium"] fullscreen enable
+for_window [app_id="vlc"]      fullscreen enable
+for_window [title="SignageOS NDI"] fullscreen enable
 
-[keyboard]
-keymap_rules=evdev
-keymap_layout=gb
+default_border none
+default_floating_border none
+hide_edge_borders --i3 both
+gaps inner 0
+gaps outer 0
+seat * hide_cursor 3000
+focus_follows_mouse no
 EOF
 
 # Version stamp
@@ -252,12 +303,13 @@ step "Enabling services"
 systemctl daemon-reload
 
 systemctl enable \
-  weston.service \
+  sway.service \
   signaeos-display1.service \
   signaeos-display2.service \
   signaeos-webui.service \
   companion-satellite.service \
   signaeos-update.timer \
+  seatd.service \
   NetworkManager.service \
   avahi-daemon.service
 
@@ -265,6 +317,7 @@ systemctl enable \
 systemctl disable lightdm 2>/dev/null || true
 systemctl disable gdm    2>/dev/null || true
 systemctl disable sddm   2>/dev/null || true
+systemctl disable weston 2>/dev/null || true
 
 # Make sure we boot to multi-user (no desktop login manager)
 systemctl set-default multi-user.target
@@ -285,7 +338,7 @@ echo "  Starting services now..."
 echo ""
 
 systemctl restart NetworkManager avahi-daemon
-systemctl start weston signaeos-webui signaeos-display1 signaeos-display2 companion-satellite 2>/dev/null || true
+systemctl start seatd sway signaeos-webui signaeos-display1 signaeos-display2 companion-satellite 2>/dev/null || true
 
 echo -e "  ${G}Browse to http://$(hostname).local:3000 to configure SignageOS${N}"
 echo ""

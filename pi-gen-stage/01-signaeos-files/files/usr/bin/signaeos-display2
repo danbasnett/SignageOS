@@ -1,256 +1,181 @@
 #!/usr/bin/env bash
-# signaeos-display2 — NDI viewer on HDMI-2 (or secondary display)
-# Uses ndiplay from the NDI Tools for Linux
-# Listens on /run/signaeos/display2.sock for source-switch commands
+# signaeos-display2 — NDI viewer on workspace 2 (HDMI-A-2)
 set -euo pipefail
 
 CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display2.sock"
 NDI_PID=""
-LOG="signaeos-display2"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/signaeos-runtime}"
 
-log()  { logger -t "$LOG" -- "$*"; echo "[$(date '+%H:%M:%S')] [display2] $*"; }
-warn() { logger -t "$LOG" -- "WARN: $*"; }
-
-cfg() { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
+log()  { logger -t "signaeos-display2" -- "$*"; echo "[$(date '+%H:%M:%S')] [d2] $*"; }
+warn() { logger -t "signaeos-display2" -- "WARN: $*"; }
+cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+cfg_set_source() { local t; t=$(mktemp); jq --arg source "$1" '.display2.current_source = $source' "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+json() { jq -cn "$@"; }
 
-# ── Wait for Wayland ──────────────────────────────────────────────────────────
+detect_wayland() {
+  local sock
+  sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' 2>/dev/null | sort | head -1 || true)
+  if [[ -n "$sock" ]]; then
+    export WAYLAND_DISPLAY="$(basename "$sock")"
+  else
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+  fi
+}
+
+sway_cmd() {
+  local sock; sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'sway-ipc.*.sock' 2>/dev/null | sort | head -1 || true)
+  [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
+}
+
+browser_cmd() {
+  local p
+  for p in chromium-browser chromium /usr/bin/chromium-browser /usr/bin/chromium /usr/lib/chromium/chromium; do
+    if [[ "$p" == /* && -x "$p" ]]; then echo "$p"; return 0; fi
+    if [[ "$p" != /* ]] && command -v "$p" >/dev/null 2>&1; then command -v "$p"; return 0; fi
+  done
+  return 1
+}
+
 wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0
-  export WAYLAND_DISPLAY=wayland-0
-  local n=90  # give display1 time to start weston first
+  log "Waiting for Wayland..."
+  local n=90
   while (( n-- > 0 )); do
-    [[ -S "/run/user/0/wayland-0" ]] && { log "Wayland ready"; return; }
+    detect_wayland
+    [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && { log "Wayland ready ($WAYLAND_DISPLAY)"; return 0; }
     sleep 1
   done
-  warn "Wayland not ready — attempting anyway"
 }
 
-# ── Find ndiplay binary ───────────────────────────────────────────────────────
-find_ndiplay() {
-  # NDI SDK installs to /usr/local/bin or /opt/ndi
-  for p in /usr/local/bin/ndiplay /opt/ndi/bin/ndiplay /usr/bin/ndiplay; do
-    [[ -x "$p" ]] && echo "$p" && return
-  done
-  # Also check NDI Tools
-  for p in /usr/local/bin/NDI\ Receive /usr/local/bin/ndi-receive; do
-    [[ -x "$p" ]] && echo "$p" && return
-  done
-  echo ""
+kill_ndi() {
+  if [[ -n "$NDI_PID" ]] && kill -0 "$NDI_PID" 2>/dev/null; then
+    kill "$NDI_PID"; wait "$NDI_PID" 2>/dev/null || true; NDI_PID=""
+    sleep 1
+  fi
 }
 
-# ── Launch NDI viewer ─────────────────────────────────────────────────────────
 launch_ndi() {
   local source="$1"
-  local ndiplay; ndiplay=$(find_ndiplay)
-
-  if [[ -n "$NDI_PID" ]] && kill -0 "$NDI_PID" 2>/dev/null; then
-    kill "$NDI_PID"; wait "$NDI_PID" 2>/dev/null || true
-    NDI_PID=""; sleep 1
-  fi
-
-  if [[ -z "$ndiplay" ]]; then
-    warn "ndiplay not found — NDI SDK may not be installed"
-    # Show a fallback message via a small Chromium window on display 2
-    WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
-    chromium-browser --kiosk --no-sandbox \
-      --ozone-platform=wayland \
-      --user-data-dir=/data/chromium-profile-d2 \
-      "data:text/html,<body style='background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;font-size:2em'>NDI SDK not installed</body>" &
-    NDI_PID=$!
-    return
-  fi
+  kill_ndi
 
   if [[ -z "$source" ]]; then
-    log "No NDI source configured — showing black screen"
-    # ndiplay with no source shows black; or show a holding slide
-    WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
-    chromium-browser --kiosk --no-sandbox \
-      --ozone-platform=wayland \
-      --user-data-dir=/data/chromium-profile-d2 \
-      "data:text/html,<body style='background:#000;'></body>" &
-    NDI_PID=$!
+    log "No NDI source — workspace 2 empty"
     return
   fi
 
-  log "Launching NDI viewer → $source"
-  # ndiplay flags: -s "source name" -f fullscreen, output on second display
-  # The DISPLAY_OUTPUT env var selects the Wayland output
-  WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
-  DISPLAY_OUTPUT="HDMI-A-2" \
-  "$ndiplay" -s "$source" -f &
-  NDI_PID=$!
-  log "NDI viewer PID: $NDI_PID"
-}
+  log "NDI → $source"
+  sway_cmd "workspace 2"
+  sleep 0.5
 
-# ── Discover NDI sources via NDI Find ─────────────────────────────────────────
-# Returns JSON array of available sources
-discover_sources() {
-  # Use ndi-discover tool if available, otherwise parse NDI Find output
-  local tool
-  for t in /usr/local/bin/ndi-discover /usr/local/bin/NDI_Find; do
-    [[ -x "$t" ]] && tool="$t" && break
+  if [[ -x /usr/bin/signaeos-ndi-player ]]; then
+    log "Using native SignageOS NDI player"
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+    /usr/bin/signaeos-ndi-player "$source" 2>/dev/null &
+    NDI_PID=$!
+    sleep 1
+    sway_cmd '[title="SignageOS NDI"] fullscreen enable'
+    return
+  fi
+
+  # Try VLC with NDI plugin
+  if command -v vlc &>/dev/null; then
+    # Check if NDI module is available
+    if vlc --list 2>/dev/null | grep -qi ndi || ls /usr/lib/*/vlc/plugins/*ndi* 2>/dev/null | head -1 | grep -q .; then
+      log "Using VLC NDI plugin"
+      WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+      vlc --fullscreen --no-osd --no-video-title-show \
+        --qt-minimal-view --no-qt-name-in-title \
+        "ndi://${source}" 2>/dev/null &
+      NDI_PID=$!
+      sway_cmd '[app_id="vlc"] fullscreen enable'
+      return
+    fi
+  fi
+
+  # Try ndiplay from NDI SDK
+  for p in /usr/local/bin/ndiplay /usr/bin/ndiplay /opt/ndi/bin/ndiplay; do
+    if [[ -x "$p" ]]; then
+      log "Using ndiplay: $p"
+      WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+      "$p" -s "$source" 2>/dev/null &
+      NDI_PID=$!
+      return
+    fi
   done
 
-  if [[ -n "$tool" ]]; then
-    # Run for 3 seconds to collect sources, output as JSON
-    timeout 3 "$tool" 2>/dev/null | \
-      awk '/Source:/{print $2}' | \
-      jq -Rs 'split("\n") | map(select(length>0)) | map({name: .})' 2>/dev/null || echo "[]"
-  else
-    # Fall back to parsing /proc/net/if_inet6 multicast for NDI mDNS
-    echo "[]"
-  fi
+  # Fallback: show source name in browser on workspace 2
+  warn "No NDI player found — showing placeholder"
+  local browser
+  browser=$(browser_cmd) || { warn "Chromium executable not found"; return 1; }
+  rm -f /data/chromium-d2/SingletonLock /data/chromium-d2/SingletonSocket 2>/dev/null || true
+  WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+  "$browser" --kiosk --start-fullscreen --no-sandbox \
+    --ozone-platform=wayland \
+    --user-data-dir=/data/chromium-d2 \
+    --app="data:text/html,<body style='margin:0;background:%23111;display:flex;align-items:center;justify-content:center;height:100vh'><div style='color:white;font-family:sans-serif;text-align:center'><p style='font-size:3vw;color:%23888'>NDI Source</p><p style='font-size:2.5vw'>${source}</p><p style='font-size:1.5vw;color:%23666;margin-top:20px'>Install VLC for video playback</p></div></body>" &
+  NDI_PID=$!
+  sleep 3
+  sway_cmd '[app_id="chromium"] fullscreen enable'
 }
 
-# ── NDI Access Manager API ────────────────────────────────────────────────────
-am_request() {
-  local method="$1" path="$2" body="${3:-}"
-  local am_ip; am_ip=$(cfg '.ndi.access_manager_ip' "")
-  local am_port; am_port=$(cfg '.ndi.access_manager_port' "80")
-  [[ -z "$am_ip" ]] && echo '{"error":"no access manager configured"}' && return
-
-  local url="http://${am_ip}:${am_port}${path}"
-  if [[ -n "$body" ]]; then
-    curl -fsSL -X "$method" \
-      -H "Content-Type: application/json" \
-      -d "$body" \
-      --connect-timeout 5 \
-      "$url" 2>/dev/null || echo '{"error":"request failed"}'
-  else
-    curl -fsSL -X "$method" \
-      --connect-timeout 5 \
-      "$url" 2>/dev/null || echo '{"error":"request failed"}'
-  fi
-}
-
-# NDI Access Manager API endpoints (NDI AM REST API v1)
-am_get_sources()  { am_request GET  "/v1/sources"; }
-am_get_groups()   { am_request GET  "/v1/groups"; }
-am_get_receivers(){ am_request GET  "/v1/receivers"; }
-am_set_source_visibility() {
-  local source_id="$1" visible="$2"
-  am_request PUT "/v1/sources/${source_id}" "{\"enabled\":${visible}}"
-}
-am_register_receiver() {
-  local name ip
-  name=$(cfg '.display_name' "SignageOS-Display2")
-  ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-  am_request POST "/v1/receivers" \
-    "{\"name\":\"${name}\",\"ip\":\"${ip}\",\"groups\":$(jq '.ndi.groups' "$CONFIG" 2>/dev/null || echo '[]')}"
-}
-
-# ── Control socket ────────────────────────────────────────────────────────────
 handle_command() {
   local line; read -r -t 10 line || { echo '{"ok":false,"error":"timeout"}'; return; }
   local cmd; cmd=$(echo "$line" | jq -r '.cmd' 2>/dev/null || echo "")
-
   case "$cmd" in
     source)
-      # Switch to a named NDI source
       local name; name=$(echo "$line" | jq -r '.source // ""')
-      cfg_set '.display2.current_source' "\"$name\""
-      launch_ndi "$name"
-      echo '{"ok":true}'
-      ;;
+      cfg_set_source "$name"
+      launch_ndi "$name"; echo '{"ok":true}' ;;
     next)
       local sources cur idx total
       sources=$(jq -r '[.display2.sources[].name]' "$CONFIG" 2>/dev/null || echo '[]')
       cur=$(cfg '.display2.current_source' "")
       total=$(echo "$sources" | jq 'length')
       (( total == 0 )) && echo '{"ok":false,"error":"no sources"}' && return
-      idx=$(echo "$sources" | jq -r "index(\"$cur\") // -1")
+      idx=$(echo "$sources" | jq -r --arg cur "$cur" 'index($cur) // -1')
       idx=$(( (idx + 1) % total ))
       local next; next=$(echo "$sources" | jq -r ".[$idx]")
-      cfg_set '.display2.current_source' "\"$next\""
-      launch_ndi "$next"
-      echo "{\"ok\":true,\"source\":\"$next\"}"
-      ;;
+      cfg_set_source "$next"
+      launch_ndi "$next"; json --arg source "$next" '{ok:true, source:$source}' ;;
     prev)
       local sources cur idx total
       sources=$(jq -r '[.display2.sources[].name]' "$CONFIG" 2>/dev/null || echo '[]')
       cur=$(cfg '.display2.current_source' "")
       total=$(echo "$sources" | jq 'length')
       (( total == 0 )) && echo '{"ok":false,"error":"no sources"}' && return
-      idx=$(echo "$sources" | jq -r "index(\"$cur\") // 0")
+      idx=$(echo "$sources" | jq -r --arg cur "$cur" 'index($cur) // 0')
       idx=$(( (idx - 1 + total) % total ))
       local prev; prev=$(echo "$sources" | jq -r ".[$idx]")
-      cfg_set '.display2.current_source' "\"$prev\""
-      launch_ndi "$prev"
-      echo "{\"ok\":true,\"source\":\"$prev\"}"
-      ;;
-    discover)
-      local found; found=$(discover_sources)
-      echo "{\"ok\":true,\"sources\":$found}"
-      ;;
-    am_sources)
-      local r; r=$(am_get_sources)
-      echo "{\"ok\":true,\"data\":$r}"
-      ;;
-    am_groups)
-      local r; r=$(am_get_groups)
-      echo "{\"ok\":true,\"data\":$r}"
-      ;;
-    am_receivers)
-      local r; r=$(am_get_receivers)
-      echo "{\"ok\":true,\"data\":$r}"
-      ;;
-    am_register)
-      local r; r=$(am_register_receiver)
-      echo "{\"ok\":true,\"data\":$r}"
-      ;;
-    am_set_visibility)
-      local id vis
-      id=$(echo "$line" | jq -r '.source_id // ""')
-      vis=$(echo "$line" | jq -r '.visible // true')
-      local r; r=$(am_set_source_visibility "$id" "$vis")
-      echo "{\"ok\":true,\"data\":$r}"
-      ;;
+      cfg_set_source "$prev"
+      launch_ndi "$prev"; json --arg source "$prev" '{ok:true, source:$source}' ;;
     status)
       local src; src=$(cfg '.display2.current_source' "")
-      local am_ip; am_ip=$(cfg '.ndi.access_manager_ip' "")
-      echo "{\"ok\":true,\"display\":2,\"source\":\"$src\",\"am_ip\":\"$am_ip\",\"ndi_pid\":${NDI_PID:-0}}"
-      ;;
-    *) echo '{"ok":false,"error":"unknown command"}' ;;
+      json --arg source "$src" --argjson pid "${NDI_PID:-0}" \
+        '{ok:true, display:2, source:$source, pid:$pid}' ;;
+    *) echo '{"ok":false,"error":"unknown"}' ;;
   esac
 }
 
-if [[ "${1:-}" == "--handle-command" ]]; then handle_command; exit 0; fi
+[[ "${1:-}" == "--handle-command" ]] && { handle_command; exit 0; }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-log "Display 2 (NDI) daemon starting"
+log "Display 2 (NDI) starting"
 wait_display
 mkdir -p /run/signaeos
-
-# Socket listener
 rm -f "$SOCKET"
 while true; do
   socat UNIX-LISTEN:"$SOCKET",fork EXEC:"$0 --handle-command" 2>/dev/null || sleep 2
 done &
 
-# Check role
 role=$(cfg '.role' "both")
-if [[ "$role" == "web" ]]; then
-  log "Role is 'web' — display 2 not active on this device"
-  sleep infinity
-fi
+[[ "$role" == "web" ]] && { log "Role=web, display2 inactive"; sleep infinity; }
 
-# Register with NDI Access Manager if configured
-am_ip=$(cfg '.ndi.access_manager_ip' "")
-[[ -n "$am_ip" ]] && { log "Registering with NDI Access Manager at $am_ip"; am_register_receiver || true; }
+launch_ndi "$(cfg '.display2.current_source' "")"
 
-# Launch initial source
-current=$(cfg '.display2.current_source' "")
-launch_ndi "$current"
-
-# Watchdog
 while true; do
   sleep 15
   if [[ -n "$NDI_PID" ]] && ! kill -0 "$NDI_PID" 2>/dev/null; then
-    warn "NDI viewer died — restarting"
-    NDI_PID=""
-    sleep 2
+    warn "NDI player died — restarting"; sleep 2
     launch_ndi "$(cfg '.display2.current_source' "")"
   fi
 done

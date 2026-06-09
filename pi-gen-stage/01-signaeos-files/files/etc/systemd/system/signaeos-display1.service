@@ -1,16 +1,18 @@
 [Unit]
-Description=SignageOS Display 1 (Web/Chromium)
-After=weston.service signaeos-webui.service
-Wants=weston.service
+Description=SignageOS Display 1 (Web)
+After=network.target sway.service signaeos-webui.service
+Wants=sway.service signaeos-webui.service
 
 [Service]
 Type=simple
+User=signaeos
+Group=signaeos
+ExecStartPre=+/usr/bin/install -d -o signaeos -g signaeos -m 0755 /run/signaeos
 ExecStart=/usr/bin/signaeos-display1
 Restart=always
 RestartSec=5
-Environment=XDG_RUNTIME_DIR=/run/user/0
-Environment=WAYLAND_DISPLAY=wayland-0
-Environment=HOME=/root
+Environment=XDG_RUNTIME_DIR=/run/signaeos-runtime
+Environment=HOME=/home/signaeos
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=signaeos-display1

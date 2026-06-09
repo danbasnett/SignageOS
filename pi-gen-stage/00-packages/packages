@@ -1,4 +1,4 @@
-weston
+sway
 chromium-browser
 curl
 wget
@@ -10,10 +10,15 @@ openssh-server
 network-manager
 wpasupplicant
 vlan
+seatd
 cloud-guest-utils
 libusb-1.0-0
 nodejs
 npm
+build-essential
+pkg-config
+libsdl2-2.0-0
+libsdl2-dev
 alsa-utils
 usbutils
 fonts-dejavu-core

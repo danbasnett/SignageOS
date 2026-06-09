@@ -77,10 +77,12 @@ chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   bash-completion curl wget ca-certificates gnupg jq socat"
 chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   network-manager wpasupplicant vlan avahi-daemon libnss-mdns \
-  cloud-guest-utils util-linux e2fsprogs dosfstools xz-utils"
+  cloud-guest-utils util-linux e2fsprogs dosfstools xz-utils seatd"
 chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  weston xwayland libwayland-client0 libwayland-server0 libinput10 \
+  sway xwayland libwayland-client0 libwayland-server0 libinput10 libgles2 \
   fonts-dejavu-core fonts-noto-color-emoji"
+chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  build-essential pkg-config libsdl2-2.0-0 libsdl2-dev"
 chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   chromium firefox-esr libusb-1.0-0"
 chr "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

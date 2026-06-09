@@ -11,6 +11,7 @@ const CONFIG_FILE = process.env.SIGNAEOS_CONFIG || '/data/signaeos/config.json';
 const NDI_CONFIG  = '/etc/ndi/ndi-config.v1.json';
 const D1_SOCK     = '/run/signaeos/display1.sock';
 const D2_SOCK     = '/run/signaeos/display2.sock';
+const RUNTIME_DIR = process.env.XDG_RUNTIME_DIR || '/run/signaeos-runtime';
 
 const DEFAULT_CONFIG = {
   role: 'both',
@@ -42,6 +43,7 @@ function readConfig() {
 function writeConfig(cfg) {
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  try { execSync(`chown signaeos:signaeos ${sh(CONFIG_FILE)}`); } catch {}
 }
 
 // ── Write NDI SDK config file ──────────────────────────────────────────────
@@ -72,6 +74,67 @@ function sendSocket(sockPath, cmd) {
 }
 const d1 = cmd => sendSocket(D1_SOCK, cmd);
 const d2 = cmd => sendSocket(D2_SOCK, cmd);
+
+function sh(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function swaySocket() {
+  try {
+    return execSync(`find ${sh(RUNTIME_DIR)} -maxdepth 1 -type s -name 'sway-ipc.*.sock' | sort | head -1`, { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function waylandDisplay() {
+  try {
+    const sock = execSync(`find ${sh(RUNTIME_DIR)} -maxdepth 1 -type s -name 'wayland-*' | sort | head -1`, { encoding: 'utf8' }).trim();
+    return sock ? path.basename(sock) : (process.env.WAYLAND_DISPLAY || 'wayland-0');
+  } catch {
+    return process.env.WAYLAND_DISPLAY || 'wayland-0';
+  }
+}
+
+function swaymsgPrefix() {
+  const sock = swaySocket();
+  if (!sock) return '';
+  return `SWAYSOCK=${sh(sock)} WAYLAND_DISPLAY=${sh(waylandDisplay())} XDG_RUNTIME_DIR=${sh(RUNTIME_DIR)} swaymsg`;
+}
+
+function browserCommand() {
+  const candidates = [
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/lib/chromium/chromium'
+  ];
+  return candidates.find(p => fs.existsSync(p)) || 'chromium-browser';
+}
+
+function maskedWebSocketTextFrame(text) {
+  const msgBuf = Buffer.from(text);
+  const mask = Buffer.allocUnsafe(4);
+  for (let i = 0; i < 4; i++) mask[i] = Math.floor(Math.random() * 256);
+
+  let header;
+  if (msgBuf.length < 126) {
+    header = Buffer.from([0x81, 0x80 | msgBuf.length]);
+  } else if (msgBuf.length <= 0xffff) {
+    header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 0x80 | 126;
+    header.writeUInt16BE(msgBuf.length, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x81;
+    header[1] = 0x80 | 127;
+    header.writeBigUInt64BE(BigInt(msgBuf.length), 2);
+  }
+
+  const masked = Buffer.allocUnsafe(msgBuf.length);
+  for (let i = 0; i < msgBuf.length; i++) masked[i] = msgBuf[i] ^ mask[i % 4];
+  return Buffer.concat([header, mask, masked]);
+}
 
 // ── NDI direct device query via TCP port 5960 ─────────────────────────────
 // NDI devices respond with XML listing their streams.
@@ -272,18 +335,7 @@ function cdpNavigate(url) {
             if (chunk.toString().includes('101')) {
               done = true;
               const msg = JSON.stringify({ id: 1, method: 'Page.navigate', params: { url } });
-              const msgBuf = Buffer.from(msg);
-              // WebSocket client->server frames MUST be masked
-              const mask = Buffer.allocUnsafe(4);
-              for (let i = 0; i < 4; i++) mask[i] = Math.floor(Math.random() * 256);
-              const masked = Buffer.allocUnsafe(msgBuf.length);
-              for (let i = 0; i < msgBuf.length; i++) masked[i] = msgBuf[i] ^ mask[i % 4];
-              const frame = Buffer.alloc(2 + 4 + masked.length);
-              frame[0] = 0x81;           // FIN + text opcode
-              frame[1] = 0x80 | msgBuf.length; // MASK bit + length
-              mask.copy(frame, 2);
-              masked.copy(frame, 6);
-              sock.write(frame);
+              sock.write(maskedWebSocketTextFrame(msg));
               setTimeout(() => { sock.destroy(); resolve(true); }, 300);
             }
           });
@@ -467,7 +519,6 @@ app.post('/api/network/vlans', (req, res) => {
 // ── Test card ──────────────────────────────────────────────────────────────
 app.post('/api/test/:display', (req, res) => {
   const display  = req.params.display;
-  const socket   = 'wayland-1'; // sway socket
   const workspace = display === '2' ? '2' : '1';
   const colors   = ['red','orange','yellow','lime','cyan','blue','violet','white'];
   const htmlPath = `/tmp/signaeos-test-d${display}.html`;
@@ -479,27 +530,21 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
 <div style="text-align:center;color:white;padding:40px;text-shadow:2px 2px 6px #000">
   <h1 style="font-size:5vw;margin:0 0 16px">SignageOS</h1>
   <h2 style="font-size:3vw;margin:0 0 12px;color:#aef">Display ${display} — ${display === '1' ? 'HDMI-A-1' : 'HDMI-A-2'}</h2>
-  <p style="font-size:2vw;margin:0;color:#8f8">Weston + Wayland OK</p>
+  <p style="font-size:2vw;margin:0;color:#8f8">Sway + Wayland OK</p>
   <p style="font-size:1.5vw;margin:8px 0 0;color:#888">${new Date().toLocaleTimeString()}</p>
 </div></body></html>`;
 
   fs.writeFileSync(htmlPath, html);
 
   exec(`pkill -f "chromium-test-d${display}" 2>/dev/null; true`, () => {
-    // Find sway socket dynamically and switch workspace
-    exec('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', (e, sock) => {
-      sock = (sock || '').trim();
-      const switchCmd = sock
-        ? `SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg workspace ${workspace} 2>/dev/null || true`
-        : 'true';
+    const sm = swaymsgPrefix();
+    const switchCmd = sm ? `${sm} workspace ${workspace} 2>/dev/null || true` : 'true';
       exec(switchCmd, () => {
         setTimeout(() => {
-          // Must run as admin since wayland socket is in admin's session
           const cmd = [
-            'sudo -u admin',
-            `WAYLAND_DISPLAY=wayland-1`,
-            `XDG_RUNTIME_DIR=/run/user/1000`,
-            '/usr/lib/chromium/chromium',
+            `WAYLAND_DISPLAY=${sh(waylandDisplay())}`,
+            `XDG_RUNTIME_DIR=${sh(RUNTIME_DIR)}`,
+            sh(browserCommand()),
             '--kiosk',
             '--start-fullscreen',
             '--no-sandbox',
@@ -514,16 +559,13 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
             if (err) return res.json({ ok: false, error: err.message });
             // Force fullscreen after launch
             setTimeout(() => {
-              exec('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', (e, sock) => {
-                sock = (sock || '').trim();
-                if (sock) exec(`SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg '[app_id="chromium"] fullscreen enable' 2>/dev/null`);
-              });
+              const sm2 = swaymsgPrefix();
+              if (sm2) exec(`${sm2} '[app_id="chromium"] fullscreen enable' 2>/dev/null`);
             }, 3000);
             res.json({ ok: true });
           });
         }, 500);
       });
-    });
   });
 });
 
@@ -573,23 +615,27 @@ app.post('/api/monitors', (req, res) => {
 
   // Convert resolution to sway mode format: 1920x1080@60 → 1920x1080@60Hz
   const toMode = r => r.includes('Hz') ? r : r.replace(/@(\d+(\.\d+)?)$/, '@$1Hz');
+  const widthOf = r => {
+    const match = String(r || '').match(/^(\d+)x/);
+    return match ? parseInt(match[1], 10) : 1920;
+  };
   const d1mode = toMode(d1res);
   const d2mode = toMode(d2res);
 
-  // Calculate correct position based on which output is which
-  // Monitors are 4K (3840 wide) so second output starts at x=3840
+  // Place display 2 immediately to the right of display 1.
   const d1pos = '0';
-  const d2pos = '3840';
+  const d2pos = String(widthOf(d1res));
 
   const swayConf = `# SignageOS Sway config — auto-generated
-output ${d1out} enable position ${d1pos} 0 transform ${d1rot}
-output ${d2out} enable position ${d2pos} 0 transform ${d2rot}
+output ${d1out} enable mode ${d1mode} position ${d1pos} 0 transform ${d1rot}
+output ${d2out} enable mode ${d2mode} position ${d2pos} 0 transform ${d2rot}
 
 workspace 1 output ${d1out}
 workspace 2 output ${d2out}
 
 for_window [app_id="chromium"] fullscreen enable
 for_window [app_id="vlc"]      fullscreen enable
+for_window [title="SignageOS NDI"] fullscreen enable
 
 assign [app_id="signaeos-test-d1"] workspace 1
 assign [app_id="signaeos-test-d2"] workspace 2
@@ -608,9 +654,8 @@ focus_follows_mouse no
   try {
     fs.mkdirSync('/etc/sway', { recursive: true });
     fs.writeFileSync('/etc/sway/config', swayConf);
-    const sock = execSync('ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1', { encoding: 'utf8' }).trim();
-    if (sock) {
-      const sm = `SWAYSOCK=${sock} WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 swaymsg`;
+    const sm = swaymsgPrefix();
+    if (sm) {
       exec(`${sm} reload`, () => {
         setTimeout(() => {
           // Reapply positions

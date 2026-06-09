@@ -1,293 +1,171 @@
 #!/usr/bin/env bash
-# signaeos-display1 — Chromium/Firefox kiosk on HDMI-1 (or only display)
-# Reads from /data/signaeos/config.json
-# Listens on /run/signaeos/display1.sock for switch commands
+# signaeos-display1 — Chromium kiosk on workspace 1 (HDMI-A-1)
+# Uses a kiosk proxy page — Chromium launches ONCE and never restarts for URL changes.
+# URL switching is handled by the proxy page polling /api/display/1/status
 set -euo pipefail
 
 CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display1.sock"
 BROWSER_PID=""
-LOG="signaeos-display1"
+KIOSK_URL="http://localhost:3000/kiosk/display1"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/signaeos-runtime}"
 
-log()  { logger -t "$LOG" -- "$*"; echo "[$(date '+%H:%M:%S')] [display1] $*"; }
-warn() { logger -t "$LOG" -- "WARN: $*"; }
-
-cfg() { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
+log()  { logger -t "signaeos-display1" -- "$*"; echo "[$(date '+%H:%M:%S')] [d1] $*"; }
+warn() { logger -t "signaeos-display1" -- "WARN: $*"; }
+cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+json() { jq -cn "$@"; }
 
-# ── Default config seed ───────────────────────────────────────────────────────
-ensure_config() {
-  mkdir -p /data/signaeos
-  [[ -f "$CONFIG" ]] && return
-  log "Writing default config"
-  cat > "$CONFIG" <<'JSON'
-{
-  "role": "both",
-  "display1": {
-    "browser": "chromium",
-    "current_index": 0,
-    "urls": [
-      { "label": "Setup", "url": "http://localhost:3000" }
-    ]
-  },
-  "display2": {
-    "current_source": "",
-    "sources": []
-  },
-  "ndi": {
-    "access_manager_ip": "",
-    "access_manager_port": 80,
-    "groups": []
-  },
-  "companion": {
-    "server_ip": "",
-    "server_port": 16622
-  },
-  "network": {
-    "hostname": "signaeos",
-    "native_vlan": "",
-    "vlans": [],
-    "wifi_ssid": "",
-    "wifi_password": ""
-  },
-  "ssh": {
-    "authorized_keys": ""
-  }
-}
-JSON
-}
-
-# ── Grow data partition on first boot ─────────────────────────────────────────
-grow_data() {
-  local dev; dev=$(findfs PARTLABEL=data 2>/dev/null || true)
-  [[ -z "$dev" ]] && return
-  local disk="${dev%p[0-9]*}"; [[ "$disk" == "$dev" ]] && disk="${dev%%[0-9]*}"
-  growpart "$disk" "${dev##*[^0-9]}" 2>/dev/null || true
-  resize2fs "$dev" 2>/dev/null || true
-}
-
-# ── OverlayFS ─────────────────────────────────────────────────────────────────
-setup_overlay() {
-  local dev; dev=$(findfs PARTLABEL=data 2>/dev/null || true)
-  [[ -z "$dev" ]] && mkdir -p /data/signaeos && return
-  mountpoint -q /data || mount "$dev" /data
-  for d in var home; do
-    mkdir -p /data/overlay/upper/$d /data/overlay/work/$d
-    mountpoint -q /$d || mount -t overlay overlay \
-      -o lowerdir=/$d,upperdir=/data/overlay/upper/$d,workdir=/data/overlay/work/$d \
-      /$d
-  done
-}
-
-# ── Apply system settings ─────────────────────────────────────────────────────
-apply_settings() {
-  local h; h=$(cfg '.network.hostname' "signaeos")
-  echo "$h" > /etc/hostname; hostname "$h" 2>/dev/null || true
-
-  local keys; keys=$(cfg '.ssh.authorized_keys' "")
-  if [[ -n "$keys" ]]; then
-    mkdir -p /root/.ssh
-    echo "$keys" > /root/.ssh/authorized_keys
-    chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys
+detect_wayland() {
+  local sock
+  sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' 2>/dev/null | sort | head -1 || true)
+  if [[ -n "$sock" ]]; then
+    export WAYLAND_DISPLAY="$(basename "$sock")"
+  else
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
   fi
-  [[ -f /data/signaeos/authorized_keys ]] && \
-    { mkdir -p /root/.ssh; cat /data/signaeos/authorized_keys >> /root/.ssh/authorized_keys
-      sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys; }
 }
 
-# ── VLAN interfaces ───────────────────────────────────────────────────────────
-apply_vlans() {
-  local vlan_count; vlan_count=$(jq '.network.vlans | length' "$CONFIG" 2>/dev/null || echo 0)
-  (( vlan_count == 0 )) && return
+sway_cmd() {
+  local sock; sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'sway-ipc.*.sock' 2>/dev/null | sort | head -1 || true)
+  [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
+}
 
-  log "Configuring VLAN interfaces..."
-  # Load 8021q module
-  modprobe 8021q 2>/dev/null || true
-
-  local iface; iface=$(ip -o link show | awk -F': ' '$2 ~ /^eth|^en/ {print $2; exit}')
-  [[ -z "$iface" ]] && return
-
-  jq -c '.network.vlans[]' "$CONFIG" 2>/dev/null | while read -r vlan; do
-    local id ip gw
-    id=$(echo "$vlan" | jq -r '.id')
-    ip=$(echo "$vlan" | jq -r '.ip // ""')
-    gw=$(echo "$vlan" | jq -r '.gateway // ""')
-    local vif="${iface}.${id}"
-
-    # Create VLAN interface via NetworkManager
-    nmcli con show "$vif" &>/dev/null || \
-      nmcli con add type vlan \
-        con-name "$vif" \
-        dev "$iface" \
-        id "$id" \
-        ipv4.method "${ip:+manual}" \
-        ${ip:+ipv4.addresses "$ip"} \
-        ${gw:+ipv4.gateway "$gw"} \
-        ipv6.method ignore 2>/dev/null || true
-
-    nmcli con up "$vif" 2>/dev/null || true
-    log "VLAN $id: $vif ${ip:+($ip)}"
+browser_cmd() {
+  local p
+  for p in chromium-browser chromium /usr/bin/chromium-browser /usr/bin/chromium /usr/lib/chromium/chromium; do
+    if [[ "$p" == /* && -x "$p" ]]; then echo "$p"; return 0; fi
+    if [[ "$p" != /* ]] && command -v "$p" >/dev/null 2>&1; then command -v "$p"; return 0; fi
   done
+  return 1
 }
 
-# ── Wait for Wayland display ──────────────────────────────────────────────────
 wait_display() {
-  export XDG_RUNTIME_DIR=/run/user/0
-  export WAYLAND_DISPLAY=wayland-0
+  log "Waiting for Wayland..."
   local n=60
   while (( n-- > 0 )); do
-    [[ -S "/run/user/0/wayland-0" ]] && { log "Wayland ready"; return; }
+    detect_wayland
+    [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && { log "Wayland ready ($WAYLAND_DISPLAY)"; return 0; }
     sleep 1
   done
-  warn "Wayland not ready after 60s — attempting anyway"
+  warn "Wayland not ready — continuing anyway"
 }
 
-# ── Get output name for display 1 ─────────────────────────────────────────────
-# On dual-output systems Weston names them HDMI-A-1, HDMI-A-2 etc.
-# We target HDMI-A-1 for display 1.
-display1_output() { echo "HDMI-A-1"; }
-
-# ── Current URL ───────────────────────────────────────────────────────────────
-current_url() {
-  local idx; idx=$(cfg '.display1.current_index' "0")
-  cfg ".display1.urls[$idx].url" "http://localhost:3000"
-}
-
-# ── Launch browser ────────────────────────────────────────────────────────────
 launch_browser() {
-  local url="$1"
-  local browser; browser=$(cfg '.display1.browser' "chromium")
+  local browser
+  browser=$(browser_cmd) || { warn "Chromium executable not found"; return 1; }
 
-  if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
-    kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true
-    BROWSER_PID=""; sleep 1
-  fi
+  # Clean stale locks
+  rm -f /data/chromium-profile/SingletonLock \
+        /data/chromium-profile/SingletonSocket \
+        /data/chromium-profile/SingletonCookie 2>/dev/null || true
 
-  log "Launching $browser → $url"
+  log "Launching Chromium kiosk → $KIOSK_URL"
 
-  local common_flags=(
-    --kiosk
-    --no-sandbox
-    --noerrdialogs
-    --disable-infobars
-    --disable-session-crashed-bubble
-    --disable-features=TranslateUI,OverscrollHistoryNavigation
-    --no-first-run
-    --disable-pinch
-    --autoplay-policy=no-user-gesture-required
-    --disable-background-networking
-    --disable-sync
-    --no-default-browser-check
-    --password-store=basic
-    --user-data-dir=/data/chromium-profile
-  )
+  # Switch to workspace 1 before launch
+  sway_cmd "workspace 1"
+  sleep 0.5
 
-  # Target specific Wayland output for display 1
-  # --window-position is honoured by Chromium on Wayland kiosk shell
-  case "$browser" in
-    chromium|chromium-browser)
-      WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
-      chromium-browser "${common_flags[@]}" \
-        --ozone-platform=wayland \
-        "$url" &
-      ;;
-    firefox|firefox-esr)
-      mkdir -p /data/firefox-profile
-      [[ ! -f /data/firefox-profile/user.js ]] && cat > /data/firefox-profile/user.js <<'P'
-user_pref("browser.sessionstore.resume_from_crash", false);
-user_pref("browser.shell.checkDefaultBrowser", false);
-user_pref("datareporting.policy.dataSubmissionEnabled", false);
-P
-      MOZ_ENABLE_WAYLAND=1 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/0 \
-      firefox-esr --kiosk --profile /data/firefox-profile --no-remote "$url" &
-      ;;
-  esac
-
+  WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+  "$browser" \
+    --kiosk \
+    --start-fullscreen \
+    --no-sandbox \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --no-first-run \
+    --disable-pinch \
+    --autoplay-policy=no-user-gesture-required \
+    --disable-background-networking \
+    --disable-sync \
+    --no-default-browser-check \
+    --password-store=basic \
+    --user-data-dir=/data/chromium-profile \
+    --ozone-platform=wayland \
+    --disable-features=TranslateUI,OverscrollHistoryNavigation \
+    --remote-debugging-port=9222 \
+    --remote-allow-origins='http://localhost:3000' \
+    "$KIOSK_URL" &
   BROWSER_PID=$!
   log "Browser PID: $BROWSER_PID"
+
+  # Force fullscreen after Chromium initialises
+  sleep 3
+  sway_cmd '[app_id="chromium"] fullscreen enable'
 }
 
-# ── Switch URL ────────────────────────────────────────────────────────────────
-switch_url() {
-  local idx="$1"
-  local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-  (( idx < 0 || idx >= total )) && echo '{"ok":false,"error":"index out of range"}' && return
-  cfg_set '.display1.current_index' "$idx"
-  local url; url=$(cfg ".display1.urls[$idx].url" "http://localhost:3000")
-  launch_browser "$url"
-  echo '{"ok":true}'
-}
-
-# ── Control socket ────────────────────────────────────────────────────────────
 handle_command() {
   local line; read -r -t 10 line || { echo '{"ok":false,"error":"timeout"}'; return; }
   local cmd; cmd=$(echo "$line" | jq -r '.cmd' 2>/dev/null || echo "")
-  local cur total
-
   case "$cmd" in
     switch)
-      switch_url "$(echo "$line" | jq -r '.index // 0')"
+      # Just update config — kiosk proxy page picks it up within 1 second
+      local idx; idx=$(echo "$line" | jq -r '.index // 0')
+      local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      if (( idx < 0 || idx >= total )); then
+        echo '{"ok":false,"error":"index out of range"}'; return
+      fi
+      cfg_set '.display1.current_index' "$idx"
+      echo '{"ok":true}'
       ;;
     next)
+      local cur total
       cur=$(cfg '.display1.current_index' "0")
       total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-      switch_url $(( (cur + 1) % total ))
+      local next=$(( (cur + 1) % total ))
+      cfg_set '.display1.current_index' "$next"
+      echo '{"ok":true}'
       ;;
     prev)
+      local cur total
       cur=$(cfg '.display1.current_index' "0")
       total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-      switch_url $(( (cur - 1 + total) % total ))
+      local prev=$(( (cur - 1 + total) % total ))
+      cfg_set '.display1.current_index' "$prev"
+      echo '{"ok":true}'
       ;;
     reload)
-      launch_browser "$(current_url)"
+      # Kill and relaunch browser if needed
+      if [[ -n "$BROWSER_PID" ]] && kill -0 "$BROWSER_PID" 2>/dev/null; then
+        kill "$BROWSER_PID"; wait "$BROWSER_PID" 2>/dev/null || true; BROWSER_PID=""
+      fi
+      launch_browser
       echo '{"ok":true}'
       ;;
     status)
-      local idx label url
-      idx=$(cfg '.display1.current_index' "0")
-      label=$(cfg ".display1.urls[$idx].label" "")
-      url=$(cfg ".display1.urls[$idx].url" "")
-      total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
-      echo "{\"ok\":true,\"display\":1,\"index\":$idx,\"label\":\"$label\",\"url\":\"$url\",\"total\":$total}"
+      local idx; idx=$(cfg '.display1.current_index' "0")
+      local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
+      local url; url=$(cfg ".display1.urls[$idx].url" "")
+      local label; label=$(cfg ".display1.urls[$idx].label" "")
+      json --arg label "$label" --arg url "$url" \
+        --argjson index "$idx" --argjson total "$total" \
+        '{ok:true, display:1, index:$index, label:$label, url:$url, total:$total}'
       ;;
     *) echo '{"ok":false,"error":"unknown command"}' ;;
   esac
 }
 
-if [[ "${1:-}" == "--handle-command" ]]; then handle_command; exit 0; fi
+[[ "${1:-}" == "--handle-command" ]] && { handle_command; exit 0; }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-log "Display 1 daemon starting"
-grow_data
-setup_overlay
-ensure_config
-apply_settings
-apply_vlans
+log "Display 1 starting"
 wait_display
-mkdir -p /run/signaeos
 
-# Socket listener
+mkdir -p /run/signaeos
 rm -f "$SOCKET"
 while true; do
   socat UNIX-LISTEN:"$SOCKET",fork EXEC:"$0 --handle-command" 2>/dev/null || sleep 2
 done &
 
-# Check role — only run if role is 'web' or 'both'
 role=$(cfg '.role' "both")
-if [[ "$role" == "ndi" ]]; then
-  log "Role is 'ndi' — display 1 not active on this device"
-  sleep infinity
-fi
+[[ "$role" == "ndi" ]] && { log "Role=ndi, display1 inactive"; sleep infinity; }
 
-launch_browser "$(current_url)"
+launch_browser
 
-# Watchdog
 while true; do
   sleep 15
   if [[ -n "$BROWSER_PID" ]] && ! kill -0 "$BROWSER_PID" 2>/dev/null; then
-    warn "Browser died — restarting"
-    BROWSER_PID=""
-    sleep 2
-    launch_browser "$(current_url)"
+    warn "Browser died — restarting"; BROWSER_PID=""; sleep 2
+    launch_browser
   fi
 done

@@ -8,30 +8,53 @@ CONFIG="/data/signaeos/config.json"
 SOCKET="/run/signaeos/display1.sock"
 BROWSER_PID=""
 KIOSK_URL="http://localhost:3000/kiosk/display1"
-export XDG_RUNTIME_DIR="/run/user/1000"
-export WAYLAND_DISPLAY="wayland-1"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/signaeos-runtime}"
 
 log()  { logger -t "signaeos-display1" -- "$*"; echo "[$(date '+%H:%M:%S')] [d1] $*"; }
 warn() { logger -t "signaeos-display1" -- "WARN: $*"; }
 cfg()  { jq -r "$1" "$CONFIG" 2>/dev/null || echo "${2:-}"; }
 cfg_set() { local t; t=$(mktemp); jq "$1 = $2" "$CONFIG" > "$t" && mv "$t" "$CONFIG"; }
+json() { jq -cn "$@"; }
+
+detect_wayland() {
+  local sock
+  sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' 2>/dev/null | sort | head -1 || true)
+  if [[ -n "$sock" ]]; then
+    export WAYLAND_DISPLAY="$(basename "$sock")"
+  else
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+  fi
+}
 
 sway_cmd() {
-  local sock; sock=$(ls /run/user/1000/sway-ipc.*.sock 2>/dev/null | head -1 || true)
+  local sock; sock=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'sway-ipc.*.sock' 2>/dev/null | sort | head -1 || true)
   [[ -n "$sock" ]] && SWAYSOCK="$sock" swaymsg "$@" 2>/dev/null || true
+}
+
+browser_cmd() {
+  local p
+  for p in chromium-browser chromium /usr/bin/chromium-browser /usr/bin/chromium /usr/lib/chromium/chromium; do
+    if [[ "$p" == /* && -x "$p" ]]; then echo "$p"; return 0; fi
+    if [[ "$p" != /* ]] && command -v "$p" >/dev/null 2>&1; then command -v "$p"; return 0; fi
+  done
+  return 1
 }
 
 wait_display() {
   log "Waiting for Wayland..."
   local n=60
   while (( n-- > 0 )); do
-    [[ -S "/run/user/1000/wayland-1" ]] && { log "Wayland ready"; return 0; }
+    detect_wayland
+    [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] && { log "Wayland ready ($WAYLAND_DISPLAY)"; return 0; }
     sleep 1
   done
   warn "Wayland not ready — continuing anyway"
 }
 
 launch_browser() {
+  local browser
+  browser=$(browser_cmd) || { warn "Chromium executable not found"; return 1; }
+
   # Clean stale locks
   rm -f /data/chromium-profile/SingletonLock \
         /data/chromium-profile/SingletonSocket \
@@ -43,8 +66,8 @@ launch_browser() {
   sway_cmd "workspace 1"
   sleep 0.5
 
-  WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 \
-  /usr/lib/chromium/chromium \
+  WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+  "$browser" \
     --kiosk \
     --start-fullscreen \
     --no-sandbox \
@@ -115,7 +138,9 @@ handle_command() {
       local total; total=$(jq '.display1.urls | length' "$CONFIG" 2>/dev/null || echo 1)
       local url; url=$(cfg ".display1.urls[$idx].url" "")
       local label; label=$(cfg ".display1.urls[$idx].label" "")
-      echo "{\"ok\":true,\"display\":1,\"index\":$idx,\"label\":\"$label\",\"url\":\"$url\",\"total\":$total}"
+      json --arg label "$label" --arg url "$url" \
+        --argjson index "$idx" --argjson total "$total" \
+        '{ok:true, display:1, index:$index, label:$label, url:$url, total:$total}'
       ;;
     *) echo '{"ok":false,"error":"unknown command"}' ;;
   esac
