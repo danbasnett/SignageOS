@@ -159,6 +159,7 @@ chmod +x /usr/bin/signaeos-display1
 chmod +x /usr/bin/signaeos-display2
 chmod +x /usr/bin/signaeos-ctl
 chmod +x /usr/bin/signaeos-update
+chmod +x /usr/bin/signaeos-build-ndi-player 2>/dev/null || true
 
 if ! id signaeos &>/dev/null; then
   useradd -m -s /bin/bash signaeos

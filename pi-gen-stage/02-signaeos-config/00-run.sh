@@ -29,7 +29,7 @@ if [ ! -d /usr/share/signaeos/webui/node_modules ]; then
 fi
 
 # ── Verify binaries exist ─────────────────────────────────────────────────────
-for bin in signaeos-display1 signaeos-display2 signaeos-ctl; do
+for bin in signaeos-display1 signaeos-display2 signaeos-ctl signaeos-build-ndi-player; do
     if [ ! -f /usr/bin/\$bin ]; then
         echo "ERROR: /usr/bin/\$bin not found!"
         exit 1

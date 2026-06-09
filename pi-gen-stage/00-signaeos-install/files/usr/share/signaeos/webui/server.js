@@ -573,7 +573,8 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
     const switchCmd = sm ? `${sm} workspace ${workspace} 2>/dev/null || true` : 'true';
       exec(switchCmd, () => {
         setTimeout(() => {
-          const cmd = [
+          const launchCmd = [
+            'env',
             `WAYLAND_DISPLAY=${sh(waylandDisplay())}`,
             `XDG_RUNTIME_DIR=${sh(RUNTIME_DIR)}`,
             sh(browserCommand()),
@@ -590,13 +591,17 @@ ${colors.map(c => `<div style="background:${c}"></div>`).join('')}
             '--disable-session-crashed-bubble',
             `--app=file://${htmlPath}`
           ].join(' ');
-          exec(cmd + ' &', err => {
+          const sm2 = swaymsgPrefix();
+          const startCmd = sm2
+            ? `${sm2} exec ${sh(launchCmd)}`
+            : `${launchCmd} &`;
+          exec(startCmd, err => {
             if (err) return res.json({ ok: false, error: err.message });
             // Move the titled test window to the requested workspace, then fullscreen it.
             setTimeout(() => {
-              const sm2 = swaymsgPrefix();
-              if (sm2) {
-                exec(`${sm2} '[app_id="${appId}"] move container to workspace ${workspace}' 2>/dev/null; ${sm2} '[app_id="${appId}"] focus' 2>/dev/null; ${sm2} '[app_id="${appId}"] fullscreen enable' 2>/dev/null; true`);
+              const sm3 = swaymsgPrefix();
+              if (sm3) {
+                exec(`${sm3} '[title="${title}"] move container to workspace ${workspace}' 2>/dev/null; ${sm3} '[title="${title}"] focus' 2>/dev/null; ${sm3} '[title="${title}"] fullscreen enable' 2>/dev/null; true`);
               }
             }, 3000);
             res.json({ ok: true });

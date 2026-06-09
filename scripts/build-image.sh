@@ -313,6 +313,7 @@ install_signaeos_files() {
   chmod +x "$root/usr/bin/signaeos-display2"
   chmod +x "$root/usr/bin/signaeos-update"
   chmod +x "$root/usr/bin/signaeos-ctl"
+  chmod +x "$root/usr/bin/signaeos-build-ndi-player" 2>/dev/null || true
 
   if [[ -f "$root/usr/src/signaeos/ndi-player.c" ]]; then
     mount_chroot "$root"

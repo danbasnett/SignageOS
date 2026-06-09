@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Build the native SignageOS NDI player from an installed or extracted NDI SDK.
+set -euo pipefail
+
+SRC="${1:-/usr/src/signaeos/ndi-player.c}"
+OUT="/usr/bin/signaeos-ndi-player"
+
+info() { echo "✓ $*"; }
+warn() { echo "! $*" >&2; }
+die()  { echo "✗ $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "Run as root: sudo signaeos-build-ndi-player"
+[[ -f "$SRC" ]] || die "NDI player source not found at $SRC"
+
+command -v gcc >/dev/null 2>&1 || die "gcc missing; install build-essential"
+command -v pkg-config >/dev/null 2>&1 || die "pkg-config missing"
+pkg-config --exists sdl2 || die "SDL2 development files missing; install libsdl2-dev"
+
+find_header() {
+  find /tmp/ndi-sdk /usr/local /opt /usr -name Processing.NDI.Lib.h 2>/dev/null | head -1
+}
+
+find_lib() {
+  local arch pattern
+  arch="$(uname -m)"
+  case "$arch" in
+    aarch64) pattern='aarch64|arm64|rpi' ;;
+    armv7l|armhf) pattern='arm|gnueabihf|rpi' ;;
+    x86_64) pattern='x86_64|amd64' ;;
+    *) pattern="$arch" ;;
+  esac
+
+  find /tmp/ndi-sdk /usr/local /opt /usr -name 'libndi.so*' 2>/dev/null \
+    | awk -v pat="$pattern" 'BEGIN{IGNORECASE=1} $0 ~ pat {print; found=1} END{exit found ? 0 : 1}' \
+    | sort -V \
+    | tail -1
+}
+
+HEADER="$(find_header || true)"
+LIB="$(find_lib || true)"
+if [[ -z "$LIB" ]]; then
+  LIB="$(find /tmp/ndi-sdk /usr/local /opt /usr -name 'libndi.so*' 2>/dev/null | sort -V | tail -1 || true)"
+fi
+
+[[ -n "$HEADER" ]] || die "Processing.NDI.Lib.h not found. Extract or install the NDI SDK first."
+[[ -n "$LIB" ]] || die "libndi.so not found. Extract or install the NDI SDK first."
+
+HEADER_DIR="$(dirname "$HEADER")"
+LIB_BASE="$(basename "$LIB")"
+
+info "Header: $HEADER"
+info "Library: $LIB"
+
+install -d /usr/local/lib
+install -m 0644 "$LIB" "/usr/local/lib/$LIB_BASE"
+ln -sf "$LIB_BASE" /usr/local/lib/libndi.so
+if [[ "$LIB_BASE" =~ ^libndi\.so\.([0-9]+) ]]; then
+  ln -sf "$LIB_BASE" "/usr/local/lib/libndi.so.${BASH_REMATCH[1]}"
+fi
+
+echo /usr/local/lib > /etc/ld.so.conf.d/ndi.conf
+ldconfig
+
+gcc "$SRC" -o "$OUT" \
+  -I"$HEADER_DIR" \
+  -L/usr/local/lib \
+  -Wl,-rpath,/usr/local/lib \
+  $(pkg-config --cflags --libs sdl2) \
+  -lndi
+
+chmod +x "$OUT"
+info "Built $OUT"
+ldd "$OUT" | grep -i ndi || warn "Built player, but ldd did not show libndi"

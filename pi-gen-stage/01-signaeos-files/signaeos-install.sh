@@ -51,7 +51,7 @@ UDEV
 echo "8021q" >> /etc/modules
 
 # ── Mark executables ──────────────────────────────────────────────────────────
-chmod +x /usr/bin/signaeos-display1 /usr/bin/signaeos-display2 /usr/bin/signaeos-ctl
+chmod +x /usr/bin/signaeos-display1 /usr/bin/signaeos-display2 /usr/bin/signaeos-ctl /usr/bin/signaeos-build-ndi-player
 
 if ! id signaeos &>/dev/null; then
   useradd -m -s /bin/bash signaeos

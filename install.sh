@@ -202,7 +202,7 @@ else
 
   # Binaries
   mkdir -p /usr/bin
-  for bin in signaeos-display1 signaeos-display2 signaeos-ctl signaeos-update; do
+  for bin in signaeos-display1 signaeos-display2 signaeos-ctl signaeos-update signaeos-build-ndi-player; do
     curl -fsSL "$BASE_URL/rootfs/usr/bin/${bin}" -o "/usr/bin/${bin}"
     chmod +x "/usr/bin/${bin}"
   done
