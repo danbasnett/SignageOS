@@ -1,202 +1,358 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SignageOS Setup</title>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SignageOS</title>
 <style>
-:root {
-  --bg:#0d1117; --surface:#161b22; --surface2:#21262d; --border:#30363d;
-  --accent:#58a6ff; --green:#3fb950; --red:#f85149; --yellow:#d29922;
-  --text:#c9d1d9; --muted:#8b949e; --r:6px;
-}
+:root{--bg:#0d1117;--s:#161b22;--s2:#21262d;--b:#30363d;--a:#58a6ff;--g:#3fb950;--r:#f85149;--y:#d29922;--t:#c9d1d9;--m:#8b949e;--rr:6px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
-
-/* Layout */
-.app{display:grid;grid-template-rows:56px 1fr;height:100vh}
-header{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:16px}
-.logo{font-size:17px;font-weight:700;letter-spacing:-.3px}
-.logo b{color:var(--accent)}
-.pill{margin-left:auto;display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--muted)}
-.dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
-.body{display:grid;grid-template-columns:200px 1fr;overflow:hidden}
-
-/* Nav */
-nav{background:var(--surface);border-right:1px solid var(--border);padding:16px 0;overflow-y:auto}
-nav a{display:flex;align-items:center;gap:10px;padding:9px 16px;color:var(--muted);text-decoration:none;font-size:13px;border-right:2px solid transparent;transition:.1s}
-nav a:hover{color:var(--text);background:var(--surface2)}
-nav a.on{color:var(--accent);background:rgba(88,166,255,.08);border-right-color:var(--accent)}
-.ico{width:18px;text-align:center;font-size:15px}
-
-/* Main */
-main{padding:28px;overflow-y:auto}
+body{background:var(--bg);color:var(--t);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;overflow:hidden}
+.app{display:grid;grid-template-rows:52px 1fr;height:100vh}
+header{background:var(--s);border-bottom:1px solid var(--b);display:flex;align-items:center;padding:0 20px;gap:12px}
+.logo{font-size:16px;font-weight:700}.logo b{color:var(--a)}
+.pills{margin-left:auto;display:flex;gap:8px}
+.pill{display:flex;align-items:center;gap:5px;background:var(--s2);border:1px solid var(--b);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--m)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--g)}
+.dot.off{background:var(--m)}.dot.warn{background:var(--y)}
+.body{display:grid;grid-template-columns:190px 1fr;overflow:hidden}
+nav{background:var(--s);border-right:1px solid var(--b);padding:12px 0;overflow-y:auto}
+nav a{display:flex;align-items:center;gap:9px;padding:8px 14px;color:var(--m);text-decoration:none;font-size:13px;border-right:2px solid transparent;transition:.1s}
+nav a:hover{color:var(--t);background:var(--s2)}
+nav a.on{color:var(--a);background:rgba(88,166,255,.08);border-right-color:var(--a)}
+.ico{width:16px;text-align:center;font-size:14px}
+nav .grp{padding:10px 14px 4px;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--m);opacity:.6}
+main{padding:24px;overflow-y:auto}
 .sec{display:none}.sec.on{display:block}
-h2{font-size:18px;font-weight:600;margin-bottom:4px}
-.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
-
-/* Cards */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px}
-.card h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:14px}
-
-/* Form */
-.field{margin-bottom:14px}
-label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
-input,select,textarea{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--r);padding:7px 10px;font-size:13px;font-family:inherit;outline:none;transition:.15s border-color}
-input:focus,select:focus,textarea:focus{border-color:var(--accent)}
-textarea{resize:vertical;min-height:90px;font-family:monospace;font-size:12px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-
-/* URL rows */
-#url-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.urow{display:grid;grid-template-columns:140px 1fr 32px;gap:8px;align-items:center}
-.urow input{margin:0}
-.del{width:32px;height:32px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:var(--r);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.del:hover{color:var(--red);border-color:var(--red);background:rgba(248,81,73,.1)}
-
+h2{font-size:17px;font-weight:600;margin-bottom:3px}
+.sub{color:var(--m);font-size:12px;margin-bottom:20px}
+.card{background:var(--s);border:1px solid var(--b);border-radius:var(--rr);padding:18px;margin-bottom:14px}
+.card h3{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--m);margin-bottom:12px}
+.field{margin-bottom:12px}
+label{display:block;font-size:11px;color:var(--m);margin-bottom:4px}
+input,select,textarea{width:100%;background:var(--s2);border:1px solid var(--b);color:var(--t);border-radius:var(--rr);padding:6px 9px;font-size:13px;font-family:inherit;outline:none;transition:.15s border-color}
+input:focus,select:focus,textarea:focus{border-color:var(--a)}
+textarea{resize:vertical;min-height:80px;font-family:monospace;font-size:12px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+/* URL/Source lists */
+#url-list,#src-list,#vlan-list{display:flex;flex-direction:column;gap:7px;margin-bottom:10px}
+.urow{display:grid;grid-template-columns:130px 1fr 30px;gap:7px;align-items:center}
+.vrow{display:grid;grid-template-columns:60px 140px 140px 80px 30px;gap:7px;align-items:center}
+.urow input,.vrow input{margin:0}
+.del{width:30px;height:30px;background:var(--s2);border:1px solid var(--b);color:var(--m);border-radius:var(--rr);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center}
+.del:hover{color:var(--r);border-color:var(--r)}
 /* Buttons */
-.btn{padding:7px 16px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:none;transition:.15s}
-.primary{background:var(--accent);color:#0d1117}.primary:hover{filter:brightness(1.1)}
-.ghost{background:var(--surface2);border:1px solid var(--border);color:var(--text)}.ghost:hover{border-color:var(--accent);color:var(--accent)}
-.danger{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--red)}.danger:hover{background:rgba(248,81,73,.22)}
-.sm{padding:5px 12px;font-size:12px}
-.acts{display:flex;gap:8px;margin-top:16px}
-
-/* URL switch buttons */
-.url-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
-.ubtn{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--r);padding:8px 16px;cursor:pointer;font-size:13px;transition:.15s}
-.ubtn:hover{border-color:var(--accent);color:var(--accent)}
-.ubtn.on{background:rgba(88,166,255,.12);border-color:var(--accent);color:var(--accent)}
-
-/* System info grid */
-.sysinfo{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.si{background:var(--surface2);border-radius:var(--r);padding:12px 14px}
-.si .v{font-size:18px;font-weight:600}
-.si .l{font-size:11px;color:var(--muted);margin-top:2px}
-
+.btn{padding:6px 14px;border-radius:var(--rr);font-size:13px;font-weight:500;cursor:pointer;border:none;transition:.15s;white-space:nowrap}
+.primary{background:var(--a);color:#0d1117}.primary:hover{filter:brightness(1.1)}
+.ghost{background:var(--s2);border:1px solid var(--b);color:var(--t)}.ghost:hover{border-color:var(--a);color:var(--a)}
+.danger{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--r)}.danger:hover{background:rgba(248,81,73,.22)}
+.sm{padding:4px 10px;font-size:12px}
+.acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+/* Switch buttons */
+.sw-btns{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+.sw{background:var(--s2);border:1px solid var(--b);color:var(--t);border-radius:var(--rr);padding:7px 14px;cursor:pointer;font-size:13px;transition:.15s}
+.sw:hover{border-color:var(--a);color:var(--a)}
+.sw.on{background:rgba(88,166,255,.12);border-color:var(--a);color:var(--a)}
+/* NDI source table */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--b);color:var(--m);font-weight:500;font-size:11px;text-transform:uppercase}
+.tbl td{padding:6px 8px;border-bottom:1px solid rgba(48,54,61,.5)}
+.tbl tr:hover td{background:var(--s2)}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:500}
+.badge-g{background:rgba(63,185,80,.15);color:var(--g)}
+.badge-r{background:rgba(248,81,73,.15);color:var(--r)}
+.badge-m{background:var(--s2);color:var(--m)}
+/* Sysinfo */
+.sysinfo{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.si{background:var(--s2);border-radius:var(--rr);padding:10px 12px}
+.si .v{font-size:17px;font-weight:600}.si .l{font-size:11px;color:var(--m);margin-top:1px}
 /* Toast */
-.toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;font-size:13px;box-shadow:0 4px 24px #0006;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
-.toast.show{opacity:1}
-.toast.ok{border-color:var(--green);color:var(--green)}
-.toast.err{border-color:var(--red);color:var(--red)}
-
-/* WiFi chips */
-.ssid-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.ssid-chip{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--muted)}
-.ssid-chip:hover{border-color:var(--accent);color:var(--text)}
-
-code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace}
-
-@media(max-width:600px){
-  .body{grid-template-columns:1fr}
-  nav{display:flex;overflow-x:auto;border-right:none;border-bottom:1px solid var(--border);padding:0}
-  nav a{white-space:nowrap;border-right:none;border-bottom:2px solid transparent}
-  nav a.on{border-bottom-color:var(--accent);border-right:none}
-}
+.toast{position:fixed;bottom:16px;right:16px;background:var(--s);border:1px solid var(--b);border-radius:var(--rr);padding:10px 14px;font-size:13px;box-shadow:0 4px 20px #0006;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}.toast.ok{border-color:var(--g);color:var(--g)}.toast.err{border-color:var(--r);color:var(--r)}
+code{background:var(--s2);padding:2px 5px;border-radius:3px;font-size:11px;font-family:monospace}
+.ssid-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.schip{background:var(--s2);border:1px solid var(--b);border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;color:var(--m)}
+.schip:hover{border-color:var(--a);color:var(--t)}
+pre.out{margin-top:10px;font-size:11px;color:var(--m);white-space:pre-wrap;background:var(--s2);padding:8px;border-radius:var(--rr);display:none}
 </style>
 </head>
 <body>
 <div class="app">
 <header>
   <div class="logo">Signage<b>OS</b></div>
-  <div class="pill"><div class="dot" id="dot"></div><span id="stxt">Loading…</span></div>
+  <div class="pills">
+    <div class="pill"><div class="dot" id="d1dot"></div><span id="d1txt">Display 1</span></div>
+    <div class="pill"><div class="dot off" id="d2dot"></div><span id="d2txt">Display 2</span></div>
+  </div>
 </header>
 <div class="body">
 <nav>
-  <a href="#" class="on" data-s="display" onclick="go(this)"><span class="ico">🖥️</span>Display</a>
-  <a href="#" data-s="urls"     onclick="go(this)"><span class="ico">🔗</span>URLs</a>
-  <a href="#" data-s="network"  onclick="go(this)"><span class="ico">📡</span>Network</a>
-  <a href="#" data-s="stream"   onclick="go(this)"><span class="ico">🎛️</span>Stream Deck</a>
-  <a href="#" data-s="system"   onclick="go(this)"><span class="ico">⚙️</span>System</a>
+  <div class="grp">Displays</div>
+  <a href="#" class="on" data-s="d1"      onclick="go(this)"><span class="ico">🖥️</span>Display 1 — Web</a>
+  <a href="#"            data-s="d2"      onclick="go(this)"><span class="ico">📺</span>Display 2 — NDI</a>
+  <div class="grp">NDI</div>
+  <a href="#"            data-s="ndi-am"  onclick="go(this)"><span class="ico">🎬</span>Access Manager</a>
+  <div class="grp">Infrastructure</div>
+  <a href="#"            data-s="network" onclick="go(this)"><span class="ico">📡</span>Network & VLANs</a>
+  <a href="#"            data-s="stream"  onclick="go(this)"><span class="ico">🎛️</span>Stream Deck</a>
+  <div class="grp">Device</div>
+  <a href="#"            data-s="monitors" onclick="go(this)"><span class="ico">🖥️</span>Monitors</a>
+  <a href="#"            data-s="system"  onclick="go(this)"><span class="ico">⚙️</span>System</a>
 </nav>
 <main>
 
-<!-- Display -->
-<section class="sec on" id="s-display">
-  <h2>Display Control</h2><p class="sub">Switch what's on screen right now.</p>
-  <div class="card">
-    <h3>Now Showing</h3>
-    <div id="now-showing" style="font-size:13px;color:var(--muted);margin-bottom:12px">Loading…</div>
-    <div class="url-btns" id="url-btns"></div>
+<!-- ── Display 1 ── -->
+<section class="sec on" id="s-d1">
+  <h2>Display 1 — Web</h2><p class="sub">Chromium or Firefox kiosk on HDMI-1. Switch URLs from Stream Deck.</p>
+  <div class="card"><h3>Now Showing</h3>
+    <div id="d1-now" style="font-size:12px;color:var(--m);margin-bottom:10px">Loading…</div>
+    <div class="sw-btns" id="d1-btns"></div>
   </div>
-  <div class="card">
-    <h3>Settings</h3>
-    <div class="field"><label>Display Name (shown in Companion)</label>
-      <input id="display_name" type="text" placeholder="Lobby Screen"></div>
-    <div class="field"><label>Browser</label>
-      <select id="browser">
-        <option value="chromium">Chromium</option>
-        <option value="firefox">Firefox ESR</option>
-      </select></div>
-    <div class="acts"><button class="btn primary" onclick="saveDisplay()">Save</button></div>
+  <div class="card"><h3>Settings</h3>
+    <div class="row2">
+      <div class="field"><label>Display Name</label><input id="display_name" type="text" placeholder="Lobby Screen"></div>
+      <div class="field"><label>Browser</label>
+        <select id="browser"><option value="chromium">Chromium</option><option value="firefox">Firefox ESR</option></select>
+      </div>
+    </div>
+    <div class="field"><label>Device Role</label>
+      <select id="role">
+        <option value="both">Both displays active</option>
+        <option value="web">Web only (single display)</option>
+        <option value="ndi">NDI only (single display)</option>
+      </select>
+    </div>
   </div>
-</section>
-
-<!-- URLs -->
-<section class="sec" id="s-urls">
-  <h2>URLs</h2><p class="sub">Each URL becomes a Stream Deck–switchable source. Add as many as you like.</p>
-  <div class="card">
-    <h3>URL List</h3>
+  <div class="card"><h3>URLs</h3>
     <div id="url-list"></div>
     <button class="btn ghost sm" onclick="addUrl()">+ Add URL</button>
-    <div class="acts"><button class="btn primary" onclick="saveUrls()">Save URLs</button></div>
+    <div class="acts"><button class="btn primary" onclick="saveD1()">Save Display 1</button></div>
   </div>
 </section>
 
-<!-- Network -->
-<section class="sec" id="s-network">
-  <h2>Network</h2><p class="sub">Ethernet works automatically. Configure WiFi and hostname here.</p>
+<!-- ── Display 2 ── -->
+<section class="sec" id="s-d2">
+  <h2>Display 2 — NDI</h2><p class="sub">Native NDI viewer on HDMI-2. Switch sources from Stream Deck.</p>
+  <div class="card"><h3>Now Showing</h3>
+    <div id="d2-now" style="font-size:12px;color:var(--m);margin-bottom:10px">Loading…</div>
+    <div class="sw-btns" id="d2-btns"></div>
+  </div>
+  <div class="card"><h3>NDI Sources</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">
+      Add sources manually, or discover them from the network.
+      Sources added here appear as Stream Deck–switchable inputs.
+    </p>
+    <div id="src-list"></div>
+    <div class="acts">
+      <button class="btn ghost sm" onclick="addSource()">+ Add Source</button>
+      <button class="btn ghost sm" onclick="discoverSources()">🔍 Discover</button>
+    </div>
+    <div id="discovered" style="margin-top:10px;display:none">
+      <div style="font-size:11px;color:var(--m);margin-bottom:6px">Discovered on network — click to add:</div>
+      <div id="disc-list" class="sw-btns"></div>
+    </div>
+    <div class="acts" style="margin-top:16px"><button class="btn primary" onclick="saveD2()">Save Display 2</button></div>
+  </div>
+</section>
+
+<!-- ── NDI Sources ── -->
+<section class="sec" id="s-ndi-am">
+  <h2>NDI Sources</h2>
+  <p class="sub">Add device IPs to discover their NDI streams across subnets. Optionally add a Discovery Server or manual sources.</p>
+
+  <!-- All discovered sources -->
   <div class="card">
-    <h3>Hostname</h3>
+    <h3>Discovered Sources &nbsp;<button class="btn ghost sm" onclick="refreshNdiSources()">🔍 Scan</button></h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">Sources found from added devices, local network, and manual entries. Click any source to switch Display 2.</p>
+    <div id="ndi-all-sources"><span style="color:var(--m);font-size:12px">Click Scan to discover sources…</span></div>
+  </div>
+
+  <!-- Device IPs -->
+  <div class="card">
+    <h3>NDI Devices</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">
+      Add the IP address of any NDI device — camera, encoder, ATEM etc.
+      The NDI SDK will query it directly, returning all its streams regardless of subnet.
+    </p>
+    <div id="ndi-device-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:12px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 36px;gap:7px;align-items:end">
+      <div><label style="font-size:11px;color:var(--m)">IP Address</label>
+        <input id="new-dev-ip" type="text" placeholder="10.32.40.2"></div>
+      <div><label style="font-size:11px;color:var(--m)">Label (optional)</label>
+        <input id="new-dev-label" type="text" placeholder="Studio Camera"></div>
+      <button class="btn primary" onclick="addNdiDevice()" style="align-self:end">Add</button>
+    </div>
+  </div>
+
+  <!-- Discovery Server -->
+  <div class="card">
+    <h3>NDI Discovery Server <span style="color:var(--m);font-weight:400;font-size:11px;margin-left:6px">optional</span></h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">
+      If you run an NDI Discovery Server on your network, set its IP here.
+      All registered sources will be discovered automatically.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 36px;gap:7px;align-items:end">
+      <div><label style="font-size:11px;color:var(--m)">Discovery Server IP (leave blank if not using)</label>
+        <input id="ndi-discovery-ip" type="text" placeholder="10.101.200.14"></div>
+      <button class="btn primary" onclick="saveDiscoveryServer()" style="align-self:end">Set</button>
+    </div>
+  </div>
+
+  <!-- Manual Sources -->
+  <div class="card">
+    <h3>Manual Sources <span style="color:var(--m);font-weight:400;font-size:11px;margin-left:6px">add by NDI name</span></h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">
+      If you know the exact NDI source name (as shown in NDI Video Monitor), add it here directly.
+      Format is usually <code>Device Name (IP)</code> e.g. <code>ATEM MINI (10.32.40.2)</code>
+    </p>
+    <div id="manual-source-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:12px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 36px;gap:7px;align-items:end">
+      <div><label style="font-size:11px;color:var(--m)">Label</label>
+        <input id="new-src-label" type="text" placeholder="Main Camera"></div>
+      <div><label style="font-size:11px;color:var(--m)">NDI Source Name</label>
+        <input id="new-src-name" type="text" placeholder="ATEM MINI (10.32.40.2)"></div>
+      <button class="btn primary" onclick="addManualSource()" style="align-self:end">Add</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── Network & VLANs ── -->
+<section class="sec" id="s-network">
+  <h2>Network &amp; VLANs</h2><p class="sub">Ethernet, 802.1q trunking, WiFi, and hostname.</p>
+  <div class="card"><h3>Hostname</h3>
     <div class="field"><label>Hostname (used for <code>signaeos.local</code> mDNS)</label>
       <input id="hostname" type="text" placeholder="signaeos"></div>
   </div>
-  <div class="card">
-    <h3>WiFi</h3>
+  <div class="card"><h3>802.1q VLAN Trunk</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">
+      The device must be connected to a switch trunk port.
+      Add tagged VLANs below — each gets its own virtual interface (e.g. <code>eth0.10</code>).
+    </p>
+    <div class="field"><label>Native / Untagged VLAN ID (leave blank if not trunking)</label>
+      <input id="native_vlan" type="text" placeholder="1"></div>
+    <div style="font-size:11px;color:var(--m);margin-bottom:8px">
+      Tagged VLANs &nbsp;
+      <span style="opacity:.6">VLAN ID · IP/prefix (blank=DHCP) · Gateway · Label</span>
+    </div>
+    <div id="vlan-list"></div>
+    <button class="btn ghost sm" onclick="addVlan()">+ Add VLAN</button>
+    <div class="acts"><button class="btn primary" onclick="saveVlans()">Apply VLANs</button></div>
+  </div>
+  <div class="card"><h3>WiFi</h3>
     <div class="field">
       <label>SSID &nbsp;<button class="btn ghost sm" onclick="scanWifi()">Scan</button></label>
       <input id="wifi_ssid" type="text" placeholder="Network name">
       <div class="ssid-list" id="ssid-list"></div>
     </div>
-    <div class="field"><label>Password</label>
-      <input id="wifi_pass" type="password" placeholder="Leave blank for open networks"></div>
+    <div class="field"><label>Password</label><input id="wifi_pass" type="password" placeholder="Leave blank for open networks"></div>
+    <div class="acts"><button class="btn primary" onclick="saveNetwork()">Save &amp; Connect</button></div>
   </div>
-  <div class="acts"><button class="btn primary" onclick="saveNetwork()">Save &amp; Connect</button></div>
 </section>
 
-<!-- Stream Deck -->
+<!-- ── Stream Deck ── -->
 <section class="sec" id="s-stream">
   <h2>Stream Deck / Companion</h2>
-  <p class="sub">Connect this device to Bitfocus Companion. Each URL becomes a switchable action.</p>
+  <p class="sub">Connect to Bitfocus Companion. Both displays are independently controllable.</p>
+
+  <!-- Connected surfaces -->
   <div class="card">
-    <h3>Companion Server</h3>
+    <h3>Connected Surfaces &nbsp;<button class="btn ghost sm" onclick="loadSurfaces()">Refresh</button></h3>
+    <div id="surfaces-list"><span style="font-size:12px;color:var(--m)">Click Refresh to check…</span></div>
+  </div>
+
+  <div class="card"><h3>Companion Server</h3>
     <div class="row2">
-      <div class="field"><label>Companion Server IP</label>
-        <input id="comp_ip" type="text" placeholder="192.168.1.100"></div>
-      <div class="field"><label>Port</label>
-        <input id="comp_port" type="number" placeholder="16622" value="16622"></div>
+      <div class="field"><label>Server IP</label><input id="comp_ip" type="text" placeholder="192.168.1.100"></div>
+      <div class="field"><label>Port</label><input id="comp_port" type="number" placeholder="16622" value="16622"></div>
     </div>
     <div class="acts"><button class="btn primary" onclick="saveCompanion()">Save &amp; Restart Satellite</button></div>
   </div>
-  <div class="card">
-    <h3>Setup Guide</h3>
-    <ol style="color:var(--muted);font-size:13px;padding-left:18px;line-height:2.2">
-      <li>Open <strong style="color:var(--text)">Bitfocus Companion</strong> on your PC</li>
-      <li>Go to <strong style="color:var(--text)">Connections</strong> → Add → search <em>Generic HTTP</em></li>
-      <li>For each URL, create a button with action:<br>
-        <code>POST http://&lt;this-device-ip&gt;:3000/api/switch/0</code> (0, 1, 2… per URL)</li>
-      <li>Or use <strong style="color:var(--text)">Satellite</strong> connection type — Companion Satellite
-          is running on port <code>16622</code> on this device</li>
-      <li>Plug Stream Deck into this box <em>or</em> into your PC running Companion</li>
-    </ol>
+  <div class="card"><h3>API Endpoints</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">Use these in Companion Generic HTTP actions:</p>
+    <table class="tbl">
+      <thead><tr><th>Action</th><th>Method</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td>Switch Display 1 URL</td><td>POST</td><td><code>http://signaeos.local:3000/api/display/1/switch/:index</code></td></tr>
+        <tr><td>Display 1 Next</td><td>POST</td><td><code>http://signaeos.local:3000/api/display/1/next</code></td></tr>
+        <tr><td>Display 1 Prev</td><td>POST</td><td><code>http://signaeos.local:3000/api/display/1/prev</code></td></tr>
+        <tr><td>Switch NDI Source</td><td>POST</td><td><code>http://signaeos.local:3000/api/display/2/source/:name</code></td></tr>
+        <tr><td>Display 2 Next</td><td>POST</td><td><code>http://signaeos.local:3000/api/display/2/next</code></td></tr>
+        <tr><td>Display 2 Prev</td><td>POST</td><td><code>http://signaeos.local:3000/api/display/2/prev</code></td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12px;color:var(--m);margin-top:10px">
+      Or use <strong style="color:var(--t)">Companion Satellite</strong> — running on port <code>16622</code> on this device.
+    </p>
   </div>
 </section>
 
-<!-- System -->
-<section class="sec" id="s-system">
-  <h2>System</h2><p class="sub">Device info, SSH keys, OTA updates.</p>
+<!-- ── Monitors ── -->
+<section class="sec" id="s-monitors">
+  <h2>Monitors</h2>
+  <p class="sub">Configure which physical HDMI port is used for each display, resolution, and rotation.</p>
   <div class="card">
-    <h3>System Info</h3>
+    <h3>Display Assignment</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:16px">
+      On Raspberry Pi 4/5: HDMI-A-1 is the port closest to the USB-C power connector, HDMI-A-2 is the other one.
+    </p>
+    <div class="row2">
+      <div class="card" style="margin:0">
+        <h3>Display 1 — Web</h3>
+        <div class="field"><label>HDMI Output</label>
+          <select id="d1-output">
+            <option value="HDMI-A-1">HDMI-A-1</option>
+            <option value="HDMI-A-2">HDMI-A-2</option>
+          </select></div>
+        <div class="field"><label>Resolution</label>
+          <select id="d1-res">
+            <option value="1920x1080@60">1920×1080 @ 60Hz</option>
+            <option value="1920x1080@50">1920×1080 @ 50Hz</option>
+            <option value="3840x2160@30">3840×2160 @ 30Hz (4K)</option>
+            <option value="1280x720@60">1280×720 @ 60Hz</option>
+          </select></div>
+        <div class="field"><label>Rotation</label>
+          <select id="d1-rot">
+            <option value="normal">Normal</option>
+            <option value="rotate-90">90°</option>
+            <option value="rotate-180">180°</option>
+            <option value="rotate-270">270°</option>
+          </select></div>
+      </div>
+      <div class="card" style="margin:0">
+        <h3>Display 2 — NDI</h3>
+        <div class="field"><label>HDMI Output</label>
+          <select id="d2-output">
+            <option value="HDMI-A-2">HDMI-A-2</option>
+            <option value="HDMI-A-1">HDMI-A-1</option>
+          </select></div>
+        <div class="field"><label>Resolution</label>
+          <select id="d2-res">
+            <option value="1920x1080@60">1920×1080 @ 60Hz</option>
+            <option value="1920x1080@50">1920×1080 @ 50Hz</option>
+            <option value="3840x2160@30">3840×2160 @ 30Hz (4K)</option>
+            <option value="1280x720@60">1280×720 @ 60Hz</option>
+          </select></div>
+        <div class="field"><label>Rotation</label>
+          <select id="d2-rot">
+            <option value="normal">Normal</option>
+            <option value="rotate-90">90°</option>
+            <option value="rotate-180">180°</option>
+            <option value="rotate-270">270°</option>
+          </select></div>
+      </div>
+    </div>
+    <div class="acts" style="margin-top:16px">
+      <button class="btn primary" onclick="saveMonitors()">Apply — Restarts Displays</button>
+      <button class="btn ghost" onclick="swapMonitors()">⇄ Swap Displays</button>
+    </div>
+    <p style="font-size:11px;color:var(--m);margin-top:10px">Applying will briefly restart both displays.</p>
+  </div>
+</section>
+
+<!-- ── System ── -->
+<section class="sec" id="s-system">
+  <h2>System</h2><p class="sub">Device info, SSH, OTA updates.</p>
+  <div class="card"><h3>System Info</h3>
     <div class="sysinfo">
       <div class="si"><div class="v" id="si-ip">—</div><div class="l">IP Address</div></div>
       <div class="si"><div class="v" id="si-arch">—</div><div class="l">Architecture</div></div>
@@ -204,39 +360,37 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px
       <div class="si"><div class="v" id="si-ver">—</div><div class="l">Version</div></div>
     </div>
   </div>
-  <div class="card">
-    <h3>SSH Access</h3>
-    <div class="field"><label>Authorized Public Keys (one per line)</label>
+  <div class="card"><h3>SSH Access</h3>
+    <div class="field"><label>Authorized Public Keys</label>
       <textarea id="ssh_keys" placeholder="ssh-ed25519 AAAA…"></textarea></div>
     <div class="acts"><button class="btn primary" onclick="saveSsh()">Save Keys</button></div>
-    <p style="margin-top:12px;font-size:12px;color:var(--muted)">
-      Connect: <code>ssh root@signaeos.local</code><br>
-      Or drop a key file at <code>/data/signaeos/authorized_keys</code>
-    </p>
+    <p style="margin-top:10px;font-size:11px;color:var(--m)">Connect: <code>ssh root@signaeos.local</code></p>
   </div>
-  <div class="card">
-    <h3>OTA Update</h3>
+  <div class="card"><h3>OTA Update</h3>
     <div class="acts">
       <button class="btn ghost" onclick="checkUpdate()">Check for Update</button>
       <button class="btn primary" id="btn-apply" onclick="applyUpdate()" style="display:none">Apply Update</button>
     </div>
-    <pre id="upd-out" style="margin-top:12px;font-size:12px;color:var(--muted);white-space:pre-wrap;background:var(--surface2);padding:10px;border-radius:var(--r);display:none"></pre>
+    <pre class="out" id="upd-out"></pre>
   </div>
-  <div class="card">
-    <h3>Danger Zone</h3>
+  <div class="card"><h3>Display Test</h3>
+    <p style="font-size:12px;color:var(--m);margin-bottom:12px">Send a test card to verify the display pipeline. With one monitor connected both will show on the same screen — they'll split when a second monitor is connected.</p>
     <div class="acts">
-      <button class="btn danger" onclick="if(confirm('Reboot now?'))reboot()">Reboot</button>
+      <button class="btn ghost" onclick="testCard('1')">🖥️ Test Display 1</button>
+      <button class="btn ghost" onclick="testCard('2')">📺 Test Display 2</button>
+      <button class="btn danger" onclick="stopTest()">✕ Stop Test</button>
     </div>
+    <div id="test-result" style="margin-top:10px;font-size:12px;color:var(--m)"></div>
+  </div>
+  <div class="card"><h3>Danger Zone</h3>
+    <div class="acts"><button class="btn danger" onclick="if(confirm('Reboot now?'))reboot()">Reboot</button></div>
   </div>
 </section>
 
-</main>
-</div>
-</div>
+</main></div></div>
 <div class="toast" id="toast"></div>
-
 <script>
-let C = {};  // config cache
+let C = {};
 
 function go(el) {
   event.preventDefault();
@@ -244,24 +398,27 @@ function go(el) {
   document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
   el.classList.add('on');
   document.getElementById('s-' + el.dataset.s).classList.add('on');
-  if (el.dataset.s === 'system') loadSystem();
+  if (el.dataset.s === 'system')   loadSystem();
+  if (el.dataset.s === 'ndi-am')  { renderNdiDevices(); renderManualSources(); }
+  if (el.dataset.s === 'stream')  loadSurfaces();
+  if (el.dataset.s === 'monitors') loadMonitors();
 }
 
 function toast(msg, type='ok') {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast show ' + type;
-  setTimeout(() => t.classList.remove('show'), 3000);
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
 async function api(method, url, body) {
   const r = await fetch(url, {
-    method,
-    headers: body ? {'Content-Type':'application/json'} : {},
+    method, headers: body ? {'Content-Type':'application/json'} : {},
     body: body ? JSON.stringify(body) : undefined
   });
   return r.json();
 }
 
+// ── Load & fill ────────────────────────────────────────────────────────────
 async function load() {
   C = await api('GET', '/api/config');
   fill();
@@ -269,176 +426,488 @@ async function load() {
 }
 
 function fill() {
-  document.getElementById('display_name').value = C.display_name || '';
-  document.getElementById('browser').value = C.browser || 'chromium';
-  document.getElementById('hostname').value = C.network?.hostname || 'signaeos';
-  document.getElementById('wifi_ssid').value = C.network?.wifi_ssid || '';
-  document.getElementById('wifi_pass').value = C.network?.wifi_password || '';
-  document.getElementById('comp_ip').value = C.companion?.server_ip || '';
-  document.getElementById('comp_port').value = C.companion?.server_port || 16622;
-  document.getElementById('ssh_keys').value = C.ssh?.authorized_keys || '';
-  renderUrlList();
-  renderUrlBtns();
+  v('display_name', C.display_name || '');
+  v('browser',      C.display1?.browser || 'chromium');
+  v('role',         C.role || 'both');
+  v('hostname',     C.network?.hostname || 'signaeos');
+  v('native_vlan',  C.network?.native_vlan || '');
+  v('wifi_ssid',    C.network?.wifi_ssid || '');
+  v('wifi_pass',    C.network?.wifi_password || '');
+  v('comp_ip',      C.companion?.server_ip || '');
+  v('comp_port',    C.companion?.server_port || 16622);
+  v('am_ip',        C.ndi?.access_manager_ip || '');
+  v('am_port',      C.ndi?.access_manager_port || 80);
+  v('am_groups',    (C.ndi?.groups || []).join(','));
+  v('ssh_keys',     C.ssh?.authorized_keys || '');
+  renderUrls(); renderSources(); renderVlans(); renderNdiDevices(); renderManualSources();
+  // Pre-fill discovery server
+  const ds = document.getElementById('ndi-discovery-ip');
+  if (ds) ds.value = C.ndi?.discovery_server || '';
 }
 
+function v(id, val) { const e = document.getElementById(id); if (e) e.value = val; }
+
+// ── Status ticker ─────────────────────────────────────────────────────────
 async function tick() {
   try {
     const s = await api('GET', '/api/status');
-    const dot = document.getElementById('dot');
-    const txt = document.getElementById('stxt');
-    if (s.ok) {
-      dot.style.background = 'var(--green)';
-      txt.textContent = s.label || 'Running';
-      document.getElementById('now-showing').textContent =
-        `Showing: ${s.label}  —  ${s.url}  (${(s.index||0)+1} of ${s.total||1})`;
-      document.querySelectorAll('.ubtn').forEach((b,i) =>
-        b.classList.toggle('on', i === s.index));
-    } else {
-      dot.style.background = 'var(--yellow)'; txt.textContent = 'Starting…';
-    }
+    // Display 1
+    const d1 = s.display1 || {};
+    setDot('d1dot', d1.ok);
+    document.getElementById('d1txt').textContent = d1.label || 'Display 1';
+    document.getElementById('d1-now').textContent = d1.ok
+      ? `Showing: ${d1.label}  —  ${d1.url}  (${(d1.index||0)+1}/${d1.total||1})`
+      : 'Browser starting…';
+    document.querySelectorAll('.sw[data-d="1"]').forEach((b,i) => b.classList.toggle('on', i===d1.index));
+    // Display 2
+    const d2 = s.display2 || {};
+    setDot('d2dot', d2.ok && d2.ndi_pid > 0);
+    document.getElementById('d2txt').textContent = d2.source || 'Display 2';
+    document.getElementById('d2-now').textContent = d2.ok
+      ? (d2.source ? `Source: ${d2.source}` : 'No source selected')
+      : 'NDI viewer starting…';
+    document.querySelectorAll('.sw[data-d="2"]').forEach(b =>
+      b.classList.toggle('on', b.dataset.src === d2.source));
   } catch {}
   setTimeout(tick, 5000);
 }
 
-// ─── URL list ──────────────────────────────────────────────────────────────
-function renderUrlList() {
+function setDot(id, on) {
+  const d = document.getElementById(id);
+  d.className = 'dot' + (on ? '' : ' off');
+}
+
+// ── URL list ──────────────────────────────────────────────────────────────
+function renderUrls() {
   const el = document.getElementById('url-list');
   el.innerHTML = '';
-  (C.urls||[]).forEach((u,i) => {
-    const d = document.createElement('div');
-    d.className = 'urow';
-    d.innerHTML = `
-      <input type="text" placeholder="Label" value="${esc(u.label)}" oninput="C.urls[${i}].label=this.value">
-      <input type="text" placeholder="https://…"  value="${esc(u.url)}"   oninput="C.urls[${i}].url=this.value">
-      <button class="del" onclick="removeUrl(${i})">✕</button>`;
+  (C.display1?.urls || []).forEach((u,i) => {
+    const d = document.createElement('div'); d.className = 'urow';
+    d.innerHTML = `<input type="text" placeholder="Label" value="${esc(u.label)}" oninput="C.display1.urls[${i}].label=this.value">
+      <input type="text" placeholder="https://…" value="${esc(u.url)}" oninput="C.display1.urls[${i}].url=this.value">
+      <button class="del" onclick="rmUrl(${i})">✕</button>`;
     el.appendChild(d);
   });
+  renderD1Btns();
 }
-
-function renderUrlBtns() {
-  const el = document.getElementById('url-btns');
-  el.innerHTML = '';
-  (C.urls||[]).forEach((u,i) => {
+function renderD1Btns() {
+  const el = document.getElementById('d1-btns'); el.innerHTML = '';
+  (C.display1?.urls || []).forEach((u,i) => {
     const b = document.createElement('button');
-    b.className = 'ubtn' + (i === C.current_url_index ? ' on' : '');
-    b.textContent = u.label || u.url;
-    b.onclick = () => switchTo(i);
-    el.appendChild(b);
+    b.className = 'sw' + (i===C.display1?.current_index ? ' on' : '');
+    b.dataset.d = '1'; b.textContent = u.label || u.url;
+    b.onclick = () => switchD1(i); el.appendChild(b);
   });
 }
-
 function addUrl() {
-  C.urls = C.urls||[]; C.urls.push({label:'New Page',url:'https://'});
-  renderUrlList(); renderUrlBtns();
+  C.display1 = C.display1 || { urls: [], current_index: 0 };
+  C.display1.urls.push({ label: 'New Page', url: 'https://' });
+  renderUrls();
 }
-
-function removeUrl(i) {
-  C.urls.splice(i,1); renderUrlList(); renderUrlBtns();
-}
-
-async function switchTo(i) {
-  const r = await api('POST', `/api/switch/${i}`);
-  if (r.ok) { C.current_url_index=i; renderUrlBtns(); toast('Switched!'); }
+function rmUrl(i) { C.display1.urls.splice(i, 1); renderUrls(); }
+async function switchD1(i) {
+  const r = await api('POST', `/api/display/1/switch/${i}`);
+  if (r.ok) { C.display1.current_index = i; renderD1Btns(); toast('Switched!'); }
   else toast('Switch failed', 'err');
 }
 
-// ─── Saves ─────────────────────────────────────────────────────────────────
-async function saveDisplay() {
+// ── NDI source list ───────────────────────────────────────────────────────
+function renderSources() {
+  const el = document.getElementById('src-list'); el.innerHTML = '';
+  (C.display2?.sources || []).forEach((s,i) => {
+    const d = document.createElement('div'); d.className = 'urow';
+    d.innerHTML = `<input type="text" placeholder="Label" value="${esc(s.label||s.name)}" oninput="C.display2.sources[${i}].label=this.value">
+      <input type="text" placeholder="Source Name (from NDI)" value="${esc(s.name)}" oninput="C.display2.sources[${i}].name=this.value">
+      <button class="del" onclick="rmSource(${i})">✕</button>`;
+    el.appendChild(d);
+  });
+  renderD2Btns();
+}
+function renderD2Btns() {
+  const el = document.getElementById('d2-btns'); el.innerHTML = '';
+  (C.display2?.sources || []).forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'sw' + (s.name === C.display2?.current_source ? ' on' : '');
+    b.dataset.d = '2'; b.dataset.src = s.name;
+    b.textContent = s.label || s.name;
+    b.onclick = () => switchD2(s.name); el.appendChild(b);
+  });
+}
+function addSource() {
+  C.display2 = C.display2 || { sources: [], current_source: '' };
+  C.display2.sources.push({ label: 'New Source', name: '' });
+  renderSources();
+}
+function rmSource(i) { C.display2.sources.splice(i, 1); renderSources(); }
+async function switchD2(name) {
+  const r = await api('POST', `/api/display/2/source/${encodeURIComponent(name)}`);
+  if (r.ok) { C.display2.current_source = name; renderD2Btns(); toast('NDI source switched!'); }
+  else toast('Switch failed', 'err');
+}
+async function discoverSources() {
+  toast('Discovering NDI sources…');
+  const r = await api('POST', '/api/display/2/discover');
+  const wrap = document.getElementById('discovered');
+  const list = document.getElementById('disc-list');
+  list.innerHTML = '';
+  if (r.ok && r.sources?.length) {
+    wrap.style.display = '';
+    r.sources.forEach(s => {
+      const b = document.createElement('button'); b.className = 'sw';
+      b.textContent = s.name;
+      b.onclick = () => {
+        C.display2.sources = C.display2.sources || [];
+        if (!C.display2.sources.find(x => x.name === s.name))
+          C.display2.sources.push({ label: s.name, name: s.name });
+        renderSources(); toast(`Added: ${s.name}`);
+      };
+      list.appendChild(b);
+    });
+  } else {
+    wrap.style.display = '';
+    list.innerHTML = '<span style="font-size:12px;color:var(--m)">No sources found on network</span>';
+  }
+}
+
+// ── VLAN list ─────────────────────────────────────────────────────────────
+function renderVlans() {
+  const el = document.getElementById('vlan-list'); el.innerHTML = '';
+  (C.network?.vlans || []).forEach((v,i) => {
+    const d = document.createElement('div'); d.className = 'vrow';
+    d.innerHTML = `
+      <input type="number" placeholder="ID" value="${v.id||''}" oninput="C.network.vlans[${i}].id=+this.value" title="VLAN ID">
+      <input type="text" placeholder="192.168.10.5/24" value="${v.ip||''}" oninput="C.network.vlans[${i}].ip=this.value" title="IP/prefix (blank=DHCP)">
+      <input type="text" placeholder="192.168.10.1" value="${v.gateway||''}" oninput="C.network.vlans[${i}].gateway=this.value" title="Gateway">
+      <input type="text" placeholder="Label" value="${v.label||''}" oninput="C.network.vlans[${i}].label=this.value" title="Label">
+      <button class="del" onclick="rmVlan(${i})">✕</button>`;
+    el.appendChild(d);
+  });
+}
+function addVlan() {
+  C.network = C.network || {}; C.network.vlans = C.network.vlans || [];
+  C.network.vlans.push({ id: '', ip: '', gateway: '', label: '' });
+  renderVlans();
+}
+function rmVlan(i) { C.network.vlans.splice(i, 1); renderVlans(); }
+
+// ── NDI Sources ───────────────────────────────────────────────────────────
+async function refreshNdiSources() {
+  const el = document.getElementById('ndi-all-sources');
+  el.innerHTML = '<span style="font-size:12px;color:var(--m)">Scanning… (takes up to 5 seconds)</span>';
+  const r = await api('GET', '/api/ndi/sources');
+  el.innerHTML = '';
+  if (!r.ok || !r.sources?.length) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--m)">No sources found. Add a device IP below and scan again.</span>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+  r.sources.forEach(s => {
+    const b = document.createElement('button');
+    const isActive = s.name === C.display2?.current_source;
+    b.className = 'sw' + (isActive ? ' on' : '');
+    const icon = s.source === 'manual' ? '📌' : '📡';
+    b.textContent = `${icon} ${s.label || s.name}`;
+    b.title = s.name;
+    b.onclick = () => switchD2(s.name);
+    wrap.appendChild(b);
+  });
+  el.appendChild(wrap);
+  renderD2Btns();
+}
+
+function renderNdiDevices() {
+  const el = document.getElementById('ndi-device-list');
+  if (!el) return;
+  el.innerHTML = '';
+  ((C.ndi || {}).devices || []).forEach(d => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--s2);border:1px solid var(--b);border-radius:var(--rr)';
+    row.innerHTML = `
+      <span style="font-size:13px;flex:1">${esc(d.label||d.ip)}</span>
+      <code style="font-size:12px;color:var(--m)">${esc(d.ip)}</code>
+      <button class="del" onclick="removeNdiDevice('${esc(d.ip)}')">✕</button>`;
+    el.appendChild(row);
+  });
+  if (!((C.ndi||{}).devices||[]).length) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--m)">No devices added yet.</span>';
+  }
+}
+
+function renderManualSources() {
+  const el = document.getElementById('manual-source-list');
+  if (!el) return;
+  el.innerHTML = '';
+  ((C.ndi || {}).manual_sources || []).forEach(s => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--s2);border:1px solid var(--b);border-radius:var(--rr)';
+    row.innerHTML = `
+      <span style="font-size:13px;flex:1">${esc(s.label||s.name)}</span>
+      <code style="font-size:12px;color:var(--m)">${esc(s.name)}</code>
+      <button class="del" onclick="removeManualSource('${esc(s.name)}')">✕</button>`;
+    el.appendChild(row);
+  });
+  if (!((C.ndi||{}).manual_sources||[]).length) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--m)">No manual sources added yet.</span>';
+  }
+}
+
+async function addNdiDevice() {
+  const ip    = document.getElementById('new-dev-ip').value.trim();
+  const label = document.getElementById('new-dev-label').value.trim() || ip;
+  if (!ip) return toast('Enter a device IP', 'err');
+  const r = await api('POST', '/api/ndi/devices', { ip, label });
+  if (r.ok) {
+    C = await api('GET', '/api/config');
+    renderNdiDevices();
+    document.getElementById('new-dev-ip').value = '';
+    document.getElementById('new-dev-label').value = '';
+    toast(`Added ${ip} — click Scan to discover its streams`);
+  } else toast('Error: ' + r.error, 'err');
+}
+
+async function removeNdiDevice(ip) {
+  const r = await api('DELETE', `/api/ndi/devices/${encodeURIComponent(ip)}`);
+  if (r.ok) { C = await api('GET', '/api/config'); renderNdiDevices(); toast('Device removed'); }
+}
+
+async function saveDiscoveryServer() {
+  const ip = document.getElementById('ndi-discovery-ip').value.trim();
+  const r = await api('POST', '/api/ndi/discovery-server', { ip });
+  r.ok ? toast(ip ? `Discovery server set: ${ip}` : 'Discovery server cleared') : toast('Error: ' + r.error, 'err');
+  C = await api('GET', '/api/config');
+}
+
+async function addManualSource() {
+  const label = document.getElementById('new-src-label').value.trim();
+  const name  = document.getElementById('new-src-name').value.trim();
+  if (!name) return toast('Enter the NDI source name', 'err');
+  const r = await api('POST', '/api/ndi/manual', { label: label || name, name });
+  if (r.ok) {
+    C = await api('GET', '/api/config');
+    renderManualSources();
+    document.getElementById('new-src-label').value = '';
+    document.getElementById('new-src-name').value = '';
+    toast(`Added: ${name}`);
+    renderD2Btns();
+  } else toast('Error: ' + r.error, 'err');
+}
+
+async function removeManualSource(name) {
+  const r = await api('DELETE', `/api/ndi/manual/${encodeURIComponent(name)}`);
+  if (r.ok) { C = await api('GET', '/api/config'); renderManualSources(); toast('Source removed'); }
+}
+
+async function saveD1() {
   C.display_name = document.getElementById('display_name').value;
-  C.browser = document.getElementById('browser').value;
-  const r = await api('POST','/api/config',C);
-  r.ok ? toast('Saved!') : toast('Error: '+r.error,'err');
+  C.display1 = C.display1 || {};
+  C.display1.browser = document.getElementById('browser').value;
+  C.role = document.getElementById('role').value;
+  const r = await api('POST', '/api/config', C);
+  r.ok ? toast('Display 1 saved!') : toast('Error: ' + r.error, 'err');
 }
-
-async function saveUrls() {
-  const r = await api('POST','/api/config',C);
-  if (r.ok) { toast('URLs saved!'); renderUrlBtns(); }
-  else toast('Error: '+r.error,'err');
+async function saveD2() {
+  const r = await api('POST', '/api/config', C);
+  r.ok ? (toast('Display 2 saved!'), renderD2Btns()) : toast('Error: ' + r.error, 'err');
 }
-
+async function saveVlans() {
+  C.network = C.network || {};
+  C.network.native_vlan = document.getElementById('native_vlan').value;
+  const r = await api('POST', '/api/network/vlans', { vlans: C.network.vlans || [], native_vlan: C.network.native_vlan });
+  r.ok ? toast('VLANs applied!') : toast('VLAN error: ' + (r.error||'?'), 'err');
+  await api('POST', '/api/config', C);
+}
 async function saveNetwork() {
-  C.network = C.network||{};
+  C.network = C.network || {};
   C.network.hostname = document.getElementById('hostname').value;
   C.network.wifi_ssid = document.getElementById('wifi_ssid').value;
   const pw = document.getElementById('wifi_pass').value;
   if (!pw.includes('•')) C.network.wifi_password = pw;
-  const r = await api('POST','/api/config',C);
-  r.ok ? toast('Saved! Connecting…') : toast('Error: '+r.error,'err');
+  const r = await api('POST', '/api/config', C);
+  r.ok ? toast('Network saved!') : toast('Error: ' + r.error, 'err');
 }
-
 async function saveCompanion() {
-  C.companion = {
-    server_ip: document.getElementById('comp_ip').value,
-    server_port: parseInt(document.getElementById('comp_port').value)||16622
-  };
-  const r = await api('POST','/api/config',C);
-  r.ok ? toast('Companion config saved!') : toast('Error: '+r.error,'err');
+  C.companion = { server_ip: document.getElementById('comp_ip').value,
+                  server_port: parseInt(document.getElementById('comp_port').value)||16622 };
+  const r = await api('POST', '/api/config', C);
+  if (r.ok) {
+    toast('Companion server saved — connecting…');
+    // Refresh surfaces after a moment to show connection status
+    setTimeout(loadSurfaces, 2000);
+  } else toast('Error: ' + r.error, 'err');
 }
-
 async function saveSsh() {
-  C.ssh = {authorized_keys: document.getElementById('ssh_keys').value};
-  const r = await api('POST','/api/config',C);
-  r.ok ? toast('SSH keys saved!') : toast('Error: '+r.error,'err');
+  C.ssh = { authorized_keys: document.getElementById('ssh_keys').value };
+  const r = await api('POST', '/api/config', C);
+  r.ok ? toast('SSH keys saved!') : toast('Error: ' + r.error, 'err');
 }
 
-// ─── WiFi scan ─────────────────────────────────────────────────────────────
-async function scanWifi() {
-  const el = document.getElementById('ssid-list');
-  el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Scanning…</span>';
-  const r = await api('GET','/api/wifi/scan');
-  el.innerHTML = '';
-  if (r.ok && r.networks?.length) {
-    r.networks.forEach(n => {
-      const c = document.createElement('span');
-      c.className = 'ssid-chip';
-      c.textContent = `${n.ssid} ${n.signal}%`;
-      c.onclick = () => { document.getElementById('wifi_ssid').value = n.ssid; };
-      el.appendChild(c);
-    });
-  } else el.innerHTML = '<span style="font-size:12px;color:var(--muted)">No networks found</span>';
+// ── Monitor config ─────────────────────────────────────────────────────────
+async function loadMonitors() {
+  const r = await api('GET', '/api/monitors');
+  if (!r.ok) return;
+  const m = r.monitors;
+  setSelect('d1-output', m.display1?.output    || 'HDMI-A-1');
+  setSelect('d1-res',    m.display1?.resolution || '1920x1080@60');
+  setSelect('d1-rot',    m.display1?.rotation   || 'normal');
+  setSelect('d2-output', m.display2?.output    || 'HDMI-A-2');
+  setSelect('d2-res',    m.display2?.resolution || '1920x1080@60');
+  setSelect('d2-rot',    m.display2?.rotation   || 'normal');
 }
 
-// ─── System ────────────────────────────────────────────────────────────────
-async function loadSystem() {
-  const s = await api('GET','/api/system');
-  if (s.ok) {
-    document.getElementById('si-ip').textContent = s.ip||'—';
-    document.getElementById('si-arch').textContent = s.arch||'—';
-    document.getElementById('si-up').textContent = fmt(s.uptime);
-    document.getElementById('si-ver').textContent = s.version||'—';
+function setSelect(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  for (const opt of el.options) {
+    if (opt.value === val) { el.value = val; return; }
   }
 }
 
-function fmt(s) {
-  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
-  return h>0?`${h}h ${m}m`:`${m}m`;
+async function saveMonitors() {
+  const body = {
+    display1: { output: document.getElementById('d1-output').value,
+                resolution: document.getElementById('d1-res').value,
+                rotation: document.getElementById('d1-rot').value },
+    display2: { output: document.getElementById('d2-output').value,
+                resolution: document.getElementById('d2-res').value,
+                rotation: document.getElementById('d2-rot').value }
+  };
+  toast('Applying monitor config — displays will restart…');
+  const r = await api('POST', '/api/monitors', body);
+  r.ok ? toast('Monitor config applied!') : toast('Error: ' + r.error, 'err');
 }
 
+async function swapMonitors() {
+  toast('Swapping displays…');
+  const r = await api('POST', '/api/monitors', { swap: true });
+  if (r.ok) { toast('Displays swapped!'); loadMonitors(); }
+  else toast('Error: ' + r.error, 'err');
+}
+async function loadSurfaces() {
+  const el = document.getElementById('surfaces-list');
+  el.innerHTML = '<span style="font-size:12px;color:var(--m)">Checking…</span>';
+
+  const [statusRes, surfacesRes] = await Promise.all([
+    api('GET', '/api/satellite/status'),
+    api('GET', '/api/satellite/surfaces')
+  ]);
+
+  el.innerHTML = '';
+
+  // Connection status to Companion server
+  const status = statusRes?.data || statusRes;
+  if (status && !status.error) {
+    const connected = status.companion?.connected ?? status.connected ?? false;
+    const dot = connected ? 'var(--g)' : 'var(--r)';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:var(--m);margin-bottom:12px';
+    row.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0"></span>
+      Companion server: <strong style="color:var(--t)">${connected ? 'Connected' : 'Not connected'}</strong>`;
+    el.appendChild(row);
+  }
+
+  // Surface list
+  const surfaceData = surfacesRes?.data || surfacesRes;
+  const surfaces = surfaceData?.surfaces || surfaceData?.data || (Array.isArray(surfaceData) ? surfaceData : null);
+
+  if (surfaces && surfaces.length) {
+    surfaces.forEach(s => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--s2);border:1px solid var(--b);border-radius:var(--rr);margin-bottom:7px';
+      const type = s.type || s.deviceType || 'Surface';
+      const id   = s.id   || s.serialNumber || s.deviceId || '';
+      const keys = s.keysTotal || s.keyCount || '';
+      row.innerHTML = `
+        <span style="font-size:18px">${getSurfaceIcon(type)}</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${esc(type)}</div>
+          <div style="font-size:11px;color:var(--m)">${id ? esc(id) : ''}${keys ? ` · ${keys} keys` : ''}</div>
+        </div>
+        <span style="font-size:11px;background:rgba(63,185,80,.15);color:var(--g);padding:2px 8px;border-radius:10px">Connected</span>`;
+      el.appendChild(row);
+    });
+  } else if (surfacesRes?.ok === false || surfaceData?.error) {
+    el.innerHTML += `<div style="font-size:12px;color:var(--m);padding:4px 0">
+      Satellite not responding — check it's running:<br>
+      <code>sudo systemctl status satellite</code></div>`;
+  } else {
+    el.innerHTML += '<div style="font-size:12px;color:var(--m);padding:4px 0">No surfaces connected. Plug in a Stream Deck or connect via Companion on your PC.</div>';
+  }
+}
+
+function getSurfaceIcon(type) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('streamdeck') || t.includes('stream_deck') || t.includes('elgato')) return '🎛️';
+  if (t.includes('loupedeck')) return '🎚️';
+  if (t.includes('contour'))   return '🖱️';
+  if (t.includes('xkeys'))     return '⌨️';
+  return '🔌';
+}
+async function scanWifi() {
+  const el = document.getElementById('ssid-list');
+  el.innerHTML = '<span style="font-size:11px;color:var(--m)">Scanning…</span>';
+  const r = await api('GET', '/api/network/wifi/scan');
+  el.innerHTML = '';
+  (r.networks||[]).forEach(n => {
+    const c = document.createElement('span'); c.className = 'schip';
+    c.textContent = `${n.ssid} ${n.signal}%`;
+    c.onclick = () => { document.getElementById('wifi_ssid').value = n.ssid; };
+    el.appendChild(c);
+  });
+  if (!r.networks?.length) el.innerHTML = '<span style="font-size:11px;color:var(--m)">None found</span>';
+}
+
+// ── System ─────────────────────────────────────────────────────────────────
+async function loadSystem() {
+  const s = await api('GET', '/api/system');
+  if (!s.ok) return;
+  document.getElementById('si-ip').textContent  = s.ip    || '—';
+  document.getElementById('si-arch').textContent = s.arch  || '—';
+  document.getElementById('si-up').textContent   = fmt(s.uptime);
+  document.getElementById('si-ver').textContent  = s.version || '—';
+}
+function fmt(s) { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h>0?`${h}h ${m}m`:`${m}m`; }
 async function checkUpdate() {
-  const o = document.getElementById('upd-out');
-  o.style.display='block'; o.textContent='Checking…';
-  const r = await api('POST','/api/update/check');
+  const o = document.getElementById('upd-out'); o.style.display='block'; o.textContent='Checking…';
+  const r = await api('POST', '/api/update/check');
   o.textContent = r.output||'No output';
-  if (r.output?.includes('update_available'))
-    document.getElementById('btn-apply').style.display='';
+  if (r.output?.includes('update_available')) document.getElementById('btn-apply').style.display='';
 }
-
 async function applyUpdate() {
-  const o = document.getElementById('upd-out');
-  o.textContent='Applying update…';
-  toast('Applying update…');
-  const r = await api('POST','/api/update/apply');
-  o.textContent = r.output||'';
-  if (r.ok) toast('Update applied — reboot to activate');
-  else toast('Update failed','err');
+  const o = document.getElementById('upd-out'); o.textContent='Applying…'; toast('Applying update…');
+  const r = await api('POST', '/api/update/apply'); o.textContent = r.output||'';
+  r.ok ? toast('Applied — reboot to activate') : toast('Failed', 'err');
+}
+async function stopTest() {
+  const el = document.getElementById('test-result');
+  el.textContent = 'Stopping test cards…';
+  el.style.color = 'var(--m)';
+  const r = await api('POST', '/api/test/stop');
+  if (r.ok) {
+    el.textContent = '✓ Test stopped — normal output restored';
+    el.style.color = 'var(--g)';
+  } else {
+    el.textContent = '✗ ' + r.error;
+    el.style.color = 'var(--r)';
+  }
 }
 
-async function reboot() {
-  toast('Rebooting…');
-  await api('POST','/api/reboot');
+async function testCard(display) {
+  const el = document.getElementById('test-result');
+  el.textContent = `Sending test card to Display ${display}…`;
+  const r = await api('POST', `/api/test/${display}`);
+  if (r.ok) {
+    el.textContent = `✓ Test card sent to Display ${display} — check the monitor`;
+    el.style.color = 'var(--g)';
+  } else {
+    el.textContent = `✗ Failed: ${r.error}`;
+    el.style.color = 'var(--r)';
+  }
 }
 
-function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}
+async function reboot() { toast('Rebooting…'); await api('POST', '/api/reboot'); }
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
 load();
 </script>
